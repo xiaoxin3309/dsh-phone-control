@@ -75,8 +75,8 @@ Restart DSH afterwards.
 ### From a tarball
 
 ```bash
-npm pack            # produces dsh-phone-control-0.1.0.tgz
-npm install ./dsh-phone-control-0.1.0.tgz --prefix ~/.dsh/profiles/desktop
+npm pack            # produces dsh-phone-control-0.1.1.tgz
+npm install ./dsh-phone-control-0.1.1.tgz --prefix ~/.dsh/profiles/desktop
 ```
 
 ### From source
