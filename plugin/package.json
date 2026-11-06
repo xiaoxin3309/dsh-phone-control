@@ -46,11 +46,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://gitee.com/xiaoxin3309/dsh-phone-control.git"
+    "url": "git+https://github.com/xiaoxin3309/dsh-phone-control.git"
   },
-  "homepage": "https://gitee.com/xiaoxin3309/dsh-phone-control#readme",
+  "homepage": "https://github.com/xiaoxin3309/dsh-phone-control#readme",
   "bugs": {
-    "url": "https://gitee.com/xiaoxin3309/dsh-phone-control/issues"
+    "url": "https://github.com/xiaoxin3309/dsh-phone-control/issues"
   },
   "author": "dsh-phone-control contributors"
 }
