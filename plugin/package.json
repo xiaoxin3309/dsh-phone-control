@@ -1,0 +1,47 @@
+{
+  "name": "dsh-phone-control",
+  "version": "0.1.0",
+  "description": "在 DSH 里直接操控你的 Android 手机：截图、按文字点击、读控件树、输入文字；手机 App 配对一次即可用。",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "lib/",
+    "skills/",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "android",
+    "phone",
+    "accessibility",
+    "automation",
+    "remote-control"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    },
+    "engines": {
+      "dsh": ">=0.2.0-rc.1"
+    }
+  }
+}

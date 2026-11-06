@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@android:color/white">
+
+    <WebView
+        android:id="@+id/webView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <TextView
+        android:id="@+id/settingsButton"
+        android:layout_width="52dp"
+        android:layout_height="52dp"
+        android:background="@drawable/bg_settings_button"
+        android:contentDescription="@string/open_settings"
+        android:elevation="8dp"
+        android:gravity="center"
+        android:text="⚙"
+        android:textColor="@android:color/white"
+        android:textSize="24sp" />
+</FrameLayout>

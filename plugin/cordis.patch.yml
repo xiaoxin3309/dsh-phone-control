@@ -1,0 +1,10 @@
+- insert:
+    - id: phone-control
+      name: dsh-phone-control
+      config:
+        # 0 = 启动时自动挑一个空闲端口（8000–9999），挑中的端口会写入
+        # <profile>/phone-bridge.json 并在之后的启动里沿用。
+        # 想固定端口就改成具体数字，例如 8788。
+        port: 0
+        bindHost: "0.0.0.0"
+        autoCode: true

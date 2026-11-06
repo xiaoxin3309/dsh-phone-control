@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">DSH 手机桥</string>
+    <string name="m0_title">DSH 手机桥 · M1</string>
+    <string name="settings_title">设置</string>
+    <string name="settings_subtitle">DSH 网址、电脑控制通道、无障碍与显示选项。</string>
+    <string name="save_and_back">保存并返回 DSH</string>
+    <string name="open_settings">打开设置</string>
+    <string name="m0_subtitle">浏览器 + 配对控制：WebView 打开 DSH；8 位码连接电脑；无障碍截图/点击。</string>
+    <string name="dsh_url_hint">DSH 网址（http 或 https）</string>
+    <string name="load_dsh">加载 DSH</string>
+    <string name="bridge_section">电脑控制通道</string>
+    <string name="bridge_host_hint">电脑 IP / 域名（如 192.168.5.3）</string>
+    <string name="bridge_ws_hint">WebSocket 地址（可选，如 wss://域名/ws）</string>
+    <string name="bridge_port_hint">端口</string>
+    <string name="bridge_code_hint">配对码（留空则用已保存 token）</string>
+    <string name="connect_now">立即连接</string>
+    <string name="disconnect_now">断开</string>
+    <string name="bridge_status_idle">连接状态：未连接</string>
+    <string name="keep_awake">被控时保持屏幕常亮</string>
+    <string name="keep_login">保持登录（下次自动连接）</string>
+    <string name="clear_login">清除已保存登录</string>
+    <string name="token_saved">已保存登录凭证：配对码可留空，直接用 token 连接。</string>
+    <string name="token_missing">未保存登录凭证：请填写 8 位配对码，并勾选“保持登录”完成一次配对。</string>
+    <string name="dim_on_control">被控时降低亮度</string>
+    <string name="dim_level_default">亮度：5%（仅 App 窗口）</string>
+    <string name="open_accessibility">无障碍设置</string>
+    <string name="test_screenshot">截图测试</string>
+    <string name="test_tap">点击中心</string>
+    <string name="accessibility_unknown">无障碍：未知</string>
+    <string name="accessibility_enabled">无障碍：已启用</string>
+    <string name="accessibility_disabled">无障碍：未启用</string>
+    <string name="accessibility_label">DSH 手机桥无障碍</string>
+    <string name="accessibility_description">用于 DSH 手机桥的截图、点击、滑动与输入。</string>
+
+    <!-- v0.0.26 UI -->
+    <string name="settings_subtitle_new">连接电脑、打开 DSH 网页、授权无障碍，都在这一页。</string>
+    <string name="section_status">连接状态</string>
+    <string name="section_bridge">电脑控制通道</string>
+    <string name="section_web">DSH 网页</string>
+    <string name="section_display">显示与省电</string>
+    <string name="section_accessibility">无障碍（截图 / 点击 / 输入）</string>
+    <string name="section_guide">使用教程</string>
+    <string name="section_log">运行日志</string>
+    <string name="guide_button">查看详细使用教程</string>
+    <string name="guide_title">使用教程</string>
+    <string name="guide_subtitle">从配对到日常使用，含所有错误码与排错步骤</string>
+    <string name="back">返回</string>
+    <string name="bridge_tip">配对成功后配对码会立即换新，输入框会自动清空；之后再连接不需要再输码。</string>
+    <string name="bridge_hint_network">内网填「电脑地址 + 端口」，外网填「WebSocket 地址」。两者都填时优先用 WebSocket。</string>
+    <string name="web_hint">手机 WebView 打开这个地址。留空则用内置的 DSH 面板。</string>
+    <string name="log_empty">（暂无日志）</string>
+</resources>

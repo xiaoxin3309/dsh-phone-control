@@ -1,0 +1,40 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+android/build/
+android/app/build/
+android/.gradle/
+android/.idea/
+android/local.properties
+*.apk
+
+# signing material — never commit
+*.keystore
+*.jks
+key.properties
+
+# local state and logs
+.tmp/
+*.log
+phone-bridge.json
+phone-bridge-token.json
+
+# internal notes (not part of the public project)
+HANDOFF.md
+report.md
+
+# early prototyping scratch scripts
+ProtoCheck.java
+TestCreate.java
+TestNative.java
+fake-phone.mjs
+run-spike.mjs
+test-client.mjs
+test-request.mjs
+test-ws.mjs
+validate-skill.mjs
+proto-check-classes/
+testclasses/
+tmp/

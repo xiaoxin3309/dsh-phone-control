@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 浅蓝主题（日间）：主色是偏深的蓝，按钮为实心蓝底白字 -->
+    <color name="dsh_primary">#2F6BFF</color>
+    <color name="dsh_on_primary">#FFFFFF</color>
+    <color name="dsh_primary_container">#DCE8FF</color>
+    <color name="dsh_on_primary_container">#08245C</color>
+    <color name="dsh_secondary">#4C7DBE</color>
+    <color name="dsh_secondary_container">#DCE8F9</color>
+    <color name="dsh_on_secondary_container">#0F2C50</color>
+
+    <!-- 状态色 -->
+    <color name="dsh_ok">#2FA85F</color>
+    <color name="dsh_warn">#D08A22</color>
+    <color name="dsh_idle">#9AA0A6</color>
+
+    <!-- 卡片描边 -->
+    <color name="dsh_card_stroke">#E2E6ED</color>
+</resources>

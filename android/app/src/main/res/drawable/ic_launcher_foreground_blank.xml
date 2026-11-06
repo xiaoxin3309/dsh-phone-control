@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 自适应图标前景层：留空。整幅图标（深蓝底 + 白色鲸鱼抱手机）放在背景层里，
+     由启动器按自己的形状遮罩裁切，鲸鱼主体位于中心安全区内。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@android:color/transparent" />
+</shape>

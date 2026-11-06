@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 浅蓝主题（夜间）：按钮用浅蓝底深字，复刻原本的视觉权重但换成蓝色系 -->
+    <color name="dsh_primary">#A8CBFF</color>
+    <color name="dsh_on_primary">#08224A</color>
+    <color name="dsh_primary_container">#1D3A66</color>
+    <color name="dsh_on_primary_container">#D8E6FF</color>
+    <color name="dsh_secondary">#9EC2F0</color>
+    <color name="dsh_secondary_container">#22344B</color>
+    <color name="dsh_on_secondary_container">#D3E4FF</color>
+
+    <color name="dsh_ok">#58D68D</color>
+    <color name="dsh_warn">#F0B85C</color>
+    <color name="dsh_idle">#8B9096</color>
+
+    <color name="dsh_card_stroke">#2A313A</color>
+</resources>

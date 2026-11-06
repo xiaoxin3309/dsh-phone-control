@@ -1,0 +1,112 @@
+# 这是什么
+
+DSH 手机桥由两部分组成：手机上的这个 App，和电脑端 DeepSeek Harness 里的手机桥插件。
+
+手机 App 用 WebView 打开 DSH 网页，同时通过一条加密的 WebSocket 通道，把「截图、点击、滑动、输入、打开应用」这些能力交给电脑。于是电脑上的智能体可以直接看着你的手机屏幕、动你的手机。
+
+# 第一次配对（约 2 分钟）
+
+1. 电脑端先要一个配对码：打开 DSH 的「设置 → 手机桥」，页面上的 8 位数字就是配对码，旁边有倒计时和「换一个」按钮（嫌麻烦也可以直接让智能体调用 phone_pair_code）。有效期 5 分钟。
+2. 手机打开本 App，进入设置页。
+3. 电脑地址二选一：
+   - 同一个 Wi-Fi：填写「电脑地址」，就是电脑的局域网 IP（例如 192.168.5.3），端口填电脑上「设置 → 手机桥」里显示的端口（默认会随机挑一个空闲端口并记住它），并确认 Windows 防火墙放行该端口。
+   - 不在同一个网络：填写「WebSocket 地址」= wss://你的隧道域名/ws（Cloudflare 隧道）。两者都填时优先用 WebSocket。
+4. 输入 8 位配对码，确认「保持登录（下次自动连接）」是勾上的，然后点「立即连接」。
+5. 状态变成 connected 就成功了，电脑端会签发一个长期 token 存在手机里。之后再连接不需要再输配对码。
+
+注意：配对成功的那一刻，电脑端会立刻把配对码换新，手机上的配对码输入框也会自动清空。这是正常现象，不要拿刚才那个码再去连一次——那个码已经失效了。
+
+# 内网穿透（cloudflared）怎么用
+
+什么时候需要：手机和电脑不在同一个 Wi-Fi 下（手机用流量、或者两台设备不在同一台路由器后面）。同一个局域网直接填电脑 IP 就行，不需要穿透。
+
+原理：电脑上跑一个 cloudflared 进程，它主动连到 Cloudflare，把「你的域名/ws」转回插件监听的那个本机端口（在「设置 → 手机桥」里能看到，默认是随机的空闲端口，也可以固定成 8788）。手机只需要连 wss://你的域名/ws，全程加密，不用在路由器上开端口。
+
+两种隧道：
+
+1. 临时隧道（只适合试一下）
+   - 电脑上执行 cloudflared tunnel --url http://127.0.0.1:8788
+   - 几秒后会打印一个 https://xxx-yyy.trycloudflare.com 地址
+   - 把 https 换成 wss、并在末尾加 /ws，填进 App 的「WebSocket 地址」
+   - 缺点：每次重启都换一个新域名，长期用会天天改地址
+
+2. 命名隧道（推荐长期使用）
+   - cloudflared tunnel login
+   - cloudflared tunnel create dsh-phone
+   - 编辑 %USERPROFILE%\.cloudflared\config.yml：tunnel 填隧道 ID，credentials-file 填密钥文件路径，ingress 里写 hostname: and.example.com 和 service: http://127.0.0.1:8788
+   - cloudflared tunnel route dns dsh-phone and.example.com
+   - cloudflared service install（装成 Windows 服务，开机自启、后台常驻）
+   - App 里填 wss://and.example.com/ws
+
+Windows 上容易踩的坑：
+
+- 一定要装成服务。只开一个命令行窗口跑的人，关掉窗口隧道就断，手机会一直重连。
+- 装服务、重启服务都要管理员权限的 PowerShell：Restart-Service Cloudflared。改完 config.yml 必须重启服务才生效。
+- 域名必须是托管在 Cloudflare 的那个；route dns 会自动加 CNAME，别再去别的 DNS 服务商手动加一条，会冲突。
+- 电脑本身不需要在路由器上做端口映射，也不要为了图省事把 8788 直接暴露到公网。
+
+验证：手机浏览器打开 https://你的域名/health，返回 dsh-phone-bridge ok，就说明隧道到电脑这段是通的。
+
+隧道断了不用手动处理：App 会自己重连（退避 1、2、4、8 秒，网络恢复时会立即重试），实测重启 cloudflared 后大约 17 秒恢复。
+
+其他方案：ngrok、frp、Tailscale 也都能用，只要最终能给手机一个 wss:// 地址就行。Tailscale 这类组网工具相当于把两台设备放进同一个虚拟局域网，更简单——手机装好 Tailscale 之后，App 里直接填电脑的 100.x.x.x 地址、端口 8788 即可，不用域名。
+
+# 日常使用
+
+- 打开 App 会自动连（前提是勾了保持登录、并且已经配对过）。
+- 断网、切后台、电脑重启、隧道重启之后都会自动重连，通常在 1 到 3 秒内恢复。
+- 电脑端想主动断开用 phone_disconnect。手机重新连上会自动恢复。
+- 想换设备或怀疑凭证泄漏：电脑端用 phone_pair_code 加上 refresh 参数换新码，手机端先点「清除已保存登录」，再重新配对。
+
+# 无障碍授权
+
+截图、点击、滑动、文字输入都依赖系统的无障碍服务。
+
+1. 点本页「无障碍设置」，或进入系统设置里的无障碍。
+2. 找到「DSH 手机桥无障碍」，打开开关并确认。
+3. 回到本页，应显示「无障碍：已启用」。
+
+重要：覆盖安装（升级 APK）之后，系统会自动撤销无障碍授权，必须手动再打开一次，否则所有截图和点击都会失败。
+
+# 电脑上能做什么
+
+- phone_status 连接状态
+- phone_ui_dump 读当前屏幕的控件树（省 token，优先用它）
+- phone_tap_text 按文字点击控件（不用传坐标）
+- phone_set_text 直接往输入框写文字（不用走键盘）
+- phone_screenshot 截屏（节点树读不到时才用）
+- phone_tap 点击坐标
+- phone_long_press 长按
+- phone_swipe 滑动
+- phone_input 输入文字
+- phone_key 返回、桌面、最近任务、通知栏
+- phone_open_app 按包名打开应用
+- phone_list_apps 已安装应用列表
+- phone_current_app 当前前台应用
+- phone_pair_code 生成或刷新配对码
+- phone_disconnect 断开手机
+
+# 错误码与处理
+
+- NO_DEVICE 手机未连接：先在手机 App 里点「立即连接」。
+- LOCKED 配对码错误次数过多，已锁定 5 分钟：等锁定期结束，或在电脑端刷新配对码会立即解锁。
+- CODE_EXPIRED 配对码已过期：配对码只有 5 分钟，电脑端重新生成一个。
+- BAD_CODE 配对码错误：注意配对成功后码会换新，检查是不是用了旧码。
+- TOKEN_INVALID 登录凭证已失效：手机端点「清除已保存登录」，然后重新配对。
+- ACCESSIBILITY_OFF 无障碍服务未开启：按上一节重新授权。
+- TIMEOUT 命令超时：多半是网络抖动，稍后重试。
+
+# 安全说明
+
+- 电脑端只保存 token 的哈希，手机端凭证存在系统的加密存储里。
+- 点「清除已保存登录」或卸载 App 都会让旧凭证失效。
+- 走公网时务必使用 wss:// 加密地址，不要用 ws:// 明文。
+
+# 连不上时的排查顺序
+
+1. 手机浏览器能不能打开 https://你的隧道域名/health，能打开说明隧道通。
+2. 电脑端 phone_status 看 connected 是不是 true。
+3. 看本页最下面的运行日志，最后几行通常写着断开原因。
+4. 内网连接：检查电脑防火墙是否放行 8788、两台设备是否真的在同一网段。
+5. 公网连接：检查电脑上的 cloudflared 服务是否在运行。
+6. 以上都正常还是连不上：清除已保存登录，重新配对一次。
