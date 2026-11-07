@@ -63,6 +63,16 @@ const state = await (await fetch(`${base}/state`)).json()
 check('GET /state 返回状态', state.ok === true && state.status?.pairingCode?.length === 8)
 check('GET /state 带 settings', typeof state.settings?.port === 'number')
 
+// ---- 2b. 二维码路由：把配对载荷画成 SVG（电脑「设置 → 手机桥」那张码）
+const qrPayload = 'dsh-phone://pair?v=1&c=12345678&p=8788&w=192.168.1.9&h=8788'
+const qr = await fetch(`${base}/qr?d=${encodeURIComponent(qrPayload)}&s=200`)
+const qrBody = await qr.text()
+check('GET /qr 返回 SVG 二维码',
+  qr.status === 200 && String(qr.headers.get('content-type')).startsWith('image/svg+xml') && qrBody.includes('<svg'),
+  `status=${qr.status} bytes=${qrBody.length}`)
+const qrNoPayload = await fetch(`${base}/qr`)
+check('GET /qr 缺 d 参数时 400', qrNoPayload.status === 400)
+
 // ---- 3. 换码
 const beforeCode = state.status.pairingCode
 service.failedAttempts = 3

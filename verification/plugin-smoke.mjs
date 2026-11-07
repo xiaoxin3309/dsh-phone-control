@@ -55,8 +55,12 @@ mod.apply(ctx, { port: PORT, bindHost: '127.0.0.1', pairingCode: '12345678', aut
 const expected = [
   'phone_status', 'phone_pair_code', 'phone_screenshot', 'phone_tap', 'phone_long_press', 'phone_swipe',
   'phone_input', 'phone_key', 'phone_open_app', 'phone_current_app', 'phone_list_apps', 'phone_disconnect',
+  // v0.1.2 新增：节点树/文本定位一类的工具，以及 6 个远程文件读写工具
+  'phone_ui_dump', 'phone_tap_text', 'phone_set_text',
+  'phone_fs_list', 'phone_fs_stat', 'phone_fs_read', 'phone_fs_write', 'phone_fs_mkdir', 'phone_fs_rm',
 ]
 for (const name of expected) check(`注册工具 ${name}`, tools.has(name))
+check('工具总数为 21', tools.size >= 21, `size=${tools.size}`)
 
 check('ctx.provide 暴露 service', provided?.name === 'phoneBridgeSpike')
 
@@ -82,6 +86,14 @@ try {
   noDevice = String(error.message ?? error)
 }
 check('无设备时 phone_tap 报 NO_DEVICE', noDevice.includes('NO_DEVICE'), noDevice)
+
+let fsNoDevice = ''
+try {
+  await tools.get('phone_fs_list').execute({})
+} catch (error) {
+  fsNoDevice = String(error.message ?? error)
+}
+check('无设备时 phone_fs_list 报 NO_DEVICE', fsNoDevice.includes('NO_DEVICE'), fsNoDevice)
 
 const disconnect = await tools.get('phone_disconnect').execute({})
 check('phone_disconnect 可执行', disconnect.ok === true)
