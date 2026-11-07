@@ -1,6 +1,7 @@
 // 设置页/自动端口 的隔离冒烟测试：不碰真实 profile，也不碰 8788。
 // 用法：node verification/settings-smoke.mjs
 import http from 'node:http'
+import net from 'node:net'
 import path from 'node:path'
 import os from 'node:os'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -22,6 +23,25 @@ const check = (name, ok, detail = '') => {
 }
 
 const logger = { info() {}, warn() {}, error() {} }
+
+// 切端口测试要挑一个「此刻真的空着」的端口：8788 是真实 profile 的默认端口，
+// DSH 正在跑的时候会被它占住，写死 8788 会让这条用例在开发机上必挂。
+const portFree = (port) =>
+  new Promise((resolve) => {
+    const probe = net.createServer()
+    probe.once('error', () => resolve(false))
+    probe.once('listening', () => probe.close(() => resolve(true)))
+    probe.listen(port, '127.0.0.1')
+  })
+
+/** First free port at or after `start`, skipping `skip`. */
+async function freePortFrom(start, skip) {
+  for (let port = start; port < start + 200; port += 1) {
+    if (port === skip) continue
+    if (await portFree(port)) return port
+  }
+  throw new Error(`no free port in ${start}..${start + 199}`)
+}
 
 // ---- 1. 自动端口：port: 0 时应挑一个 8000–9999 的空闲端口
 const service = new SpikeService({ ctx: { logger }, config: { port: 0, bindHost: '127.0.0.1' } })
@@ -51,7 +71,7 @@ check('POST /refresh 换新码', refreshed.status.pairingCode !== beforeCode)
 check('换码同时清零失败计数', refreshed.status.failedAttempts === 0)
 
 // ---- 4. 改端口 → 重新绑定
-const target = first.port === 8788 ? 8789 : 8788
+const target = await freePortFrom(8788, first.port)
 const applied = await (
   await fetch(`${base}/settings`, {
     method: 'POST',
