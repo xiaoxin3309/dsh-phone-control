@@ -50,4 +50,6 @@
     <string name="bridge_hint_network">内网填「电脑地址 + 端口」，外网填「WebSocket 地址」。两者都填时优先用 WebSocket。</string>
     <string name="web_hint">手机 WebView 打开这个地址。留空则用内置的 DSH 面板。</string>
     <string name="log_empty">（暂无日志）</string>
+    <string name="github_link">GitHub 开源仓库：xiaoxin3309/dsh-phone-control</string>
+    <string name="github_link_hint">遇到问题、想提需求或自己改，都可以在仓库里说</string>
 </resources>

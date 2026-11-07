@@ -210,11 +210,10 @@ class PhoneBridgeService : Service(), BridgeClient.Listener {
 
     override fun onToken(token: String) {
         lastToken = token
-        if (keepLogin) {
-            TokenStore.save(this, token)
-        } else {
-            TokenStore.clear(this)
-        }
+        // 永远把签发到的 token 落盘：它只是 App 私有目录里的一个凭据，
+        // 「保持登录」只决定下次要不要自动连，不该决定「要不要保存」。
+        // 否则用户拿码配对一次、我们又把码清空，重启后就会两头都空。
+        TokenStore.save(this, token)
     }
 
     override fun onCommand(id: Long, command: String, args: JSONObject) {

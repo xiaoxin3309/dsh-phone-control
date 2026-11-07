@@ -782,7 +782,12 @@ export class SpikeService {
       const oldHash = this.tokenHash
       tokenOut = randomB64u(32)
       this.previousTokenHash = oldHash
-      this.previousTokenExpiresAt = Date.now() + 10 * 60_000
+      // 旧 token 的宽限期从 10 分钟放宽到 24 小时。
+      // 原因：配对成功会立刻轮换 token，而手机端可能因为进程被杀 / 未落盘 /
+      // 版本旧而继续拿旧 token 重连。只给 10 分钟的话，用户睡一觉再连就是
+      // TOKEN_INVALID（"登录凭证已失效"），只能重新配对。
+      // 旧 token 本来就是这台设备自己的有效凭据，多留一天不放宽任何攻击面。
+      this.previousTokenExpiresAt = Date.now() + 24 * 3600 * 1000
       this.tokenHash = sha256(fromB64u(tokenOut))
       this.pairedAt = Date.now()
       void this.saveToken()

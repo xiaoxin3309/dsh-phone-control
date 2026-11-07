@@ -460,5 +460,38 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
             android:text="@string/save_and_back" />
+
+        <!-- GitHub 开源仓库（点击用系统浏览器打开） -->
+        <LinearLayout
+            android:id="@+id/githubLinkBox"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:layout_marginBottom="10dp"
+            android:background="?attr/selectableItemBackground"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:orientation="vertical"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp">
+
+            <TextView
+                android:id="@+id/githubLink"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/github_link"
+                android:textColor="?attr/colorPrimary"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:text="@string/github_link_hint"
+                android:textAppearance="@style/TextAppearance.Dsh.Hint"
+                android:textColor="?attr/colorOnSurfaceVariant" />
+        </LinearLayout>
     </LinearLayout>
 </androidx.core.widget.NestedScrollView>

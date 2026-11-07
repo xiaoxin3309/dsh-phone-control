@@ -71,8 +71,8 @@ npm install dsh-phone-control --prefix ~/.dsh/profiles/desktop
 ### 从 tarball 安装
 
 ```bash
-npm pack            # 生成 dsh-phone-control-0.1.0.tgz
-npm install ./dsh-phone-control-0.1.0.tgz --prefix ~/.dsh/profiles/desktop
+npm pack            # 生成 dsh-phone-control-0.1.2.tgz
+npm install ./dsh-phone-control-0.1.2.tgz --prefix ~/.dsh/profiles/desktop
 ```
 
 ### 从源码安装

@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
@@ -77,10 +78,17 @@ class SettingsActivity : AppCompatActivity() {
         )
         // 配对成功的瞬间电脑端会把配对码换新，旧码已经失效。清空输入框并落盘，
         // 否则用户再点一次「立即连接」就会拿旧码去试，白白吃一次 BAD_CODE。
+        // 但前提是登录凭证确实已经存下来了——以前不看这一点就清空，
+        // 一旦 token 没落盘（旧版本 / 清过凭证），用户就会同时失去码和 token，
+        // 变成「缺少配对码或登录凭证」的死角。
         if (state == "connected" && bridgeCode.text.toString().isNotBlank()) {
-            bridgeCode.setText("")
-            prefs().edit().putString(KEY_BRIDGE_CODE, "").apply()
-            log("已配对：电脑端已换新配对码，输入框已清空；后续连接直接用已保存的登录凭证")
+            if (TokenStore.get(this).isNotEmpty()) {
+                bridgeCode.setText("")
+                prefs().edit().putString(KEY_BRIDGE_CODE, "").apply()
+                log("已配对：电脑端已换新配对码，输入框已清空；后续连接直接用已保存的登录凭证")
+            } else {
+                log("配对成功，但登录凭证未写入；保留配对码以便下次重连")
+            }
         }
     }
 
@@ -139,6 +147,7 @@ class SettingsActivity : AppCompatActivity() {
         findViewById<Button>(R.id.guideButton).setOnClickListener {
             startActivity(Intent(this, GuideActivity::class.java))
         }
+        findViewById<View>(R.id.githubLinkBox).setOnClickListener { openRepoInBrowser() }
 
         keepAwake.setOnCheckedChangeListener { _, checked ->
             prefs().edit().putBoolean(KEY_KEEP_AWAKE, checked).apply()
@@ -177,6 +186,18 @@ class SettingsActivity : AppCompatActivity() {
             } else {
                 service.tapCenter()
             }
+        }
+    }
+
+    /** 用系统默认浏览器打开开源仓库；本机没有浏览器时退化成复制链接 */
+    private fun openRepoInBrowser() {
+        val url = "https://github.com/xiaoxin3309/dsh-phone-control"
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        } catch (e: Exception) {
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+            clipboard?.setPrimaryClip(android.content.ClipData.newPlainText("repo", url))
+            toast("没有可用的浏览器，链接已复制")
         }
     }
 
