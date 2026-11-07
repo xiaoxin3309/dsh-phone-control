@@ -249,6 +249,138 @@ export function apply(ctx, config) {
       },
     }),
     makeTool({
+      name: 'phone_fs_list',
+      description:
+        '列出手机上的一个目录（默认 /sdcard）：名称、完整路径、是否目录、大小、修改时间、是否可读可写。需要手机端已打开「权限与安全 → 文件读写」，否则只能访问 App 私有目录。',
+      properties: {
+        path: { type: 'string', description: '目录路径，默认 /sdcard' },
+        maxEntries: { type: 'number', description: '最多返回多少条，默认 500，上限 5000' },
+      },
+      timeoutMs: 30000,
+      present: { card: 'generic', title: '手机目录', kind: 'read' },
+      async run(args) {
+        return service.request(
+          'fs_list',
+          { path: String(args?.path ?? '/sdcard'), maxEntries: Number(args?.maxEntries ?? 500) },
+          25000,
+        )
+      },
+    }),
+    makeTool({
+      name: 'phone_fs_stat',
+      description: '查看手机上一个文件或目录的信息：类型、大小、修改时间、可读可写。',
+      properties: { path: { type: 'string', description: '文件或目录的绝对路径' } },
+      required: ['path'],
+      timeoutMs: 15000,
+      present: { card: 'generic', title: '手机文件信息', kind: 'read' },
+      async run(args) {
+        return service.request('fs_stat', { path: String(args.path) }, 10000)
+      },
+    }),
+    makeTool({
+      name: 'phone_fs_read',
+      description:
+        '读取手机上的文件。默认按 UTF-8 文本返回（超过 maxChars 会截断），传 base64: true 则返回原始 base64。大文件用 offset/length 分块，默认一次 512 KB、上限 4 MB。',
+      properties: {
+        path: { type: 'string', description: '文件绝对路径' },
+        offset: { type: 'number', description: '从第几字节开始，默认 0' },
+        length: { type: 'number', description: '读多少字节，默认 524288，上限 4194304' },
+        maxChars: { type: 'number', description: '文本模式最多返回多少字符，默认 20000' },
+        base64: { type: 'boolean', description: '为 true 时返回 base64 而不是文本' },
+      },
+      required: ['path'],
+      timeoutMs: 60000,
+      present: { card: 'generic', title: '读取手机文件', kind: 'read' },
+      async run(args) {
+        const raw = await service.request(
+          'fs_read',
+          {
+            path: String(args.path),
+            offset: Number(args?.offset ?? 0),
+            length: Number(args?.length ?? 512 * 1024),
+          },
+          55000,
+        )
+        const buffer = Buffer.from(String(raw?.dataB64 ?? ''), 'base64')
+        const base = {
+          path: raw?.path,
+          offset: raw?.offset,
+          bytes: raw?.bytes,
+          size: raw?.size,
+          eof: raw?.eof,
+          nextOffset: raw?.nextOffset,
+        }
+        if (args?.base64 === true) return { ...base, data: buffer.toString('base64') }
+        const text = buffer.toString('utf8')
+        const limit = Math.max(0, Number(args?.maxChars ?? 20000))
+        return {
+          ...base,
+          text: text.length > limit ? text.slice(0, limit) : text,
+          truncated: text.length > limit,
+        }
+      },
+    }),
+    makeTool({
+      name: 'phone_fs_write',
+      description:
+        '往手机写文件：文本用 text，二进制用 dataB64；offset 默认 0，truncate 默认 true（覆盖原文件），传 false 可续写。父目录不存在会自动建。',
+      properties: {
+        path: { type: 'string', description: '文件绝对路径' },
+        text: { type: 'string', description: '要写入的文本（UTF-8）' },
+        dataB64: { type: 'string', description: '要写入的二进制（base64），与 text 二选一' },
+        offset: { type: 'number', description: '写入起始偏移，默认 0' },
+        truncate: { type: 'boolean', description: '是否先截断，默认 true' },
+      },
+      required: ['path'],
+      timeoutMs: 60000,
+      present: { card: 'generic', title: '写入手机文件', kind: 'action' },
+      async run(args) {
+        const hasText = typeof args?.text === 'string'
+        const hasData = typeof args?.dataB64 === 'string'
+        if (!hasText && !hasData) throw new Error('要写什么？text 和 dataB64 至少给一个')
+        const dataB64 = hasData ? String(args.dataB64) : Buffer.from(String(args.text), 'utf8').toString('base64')
+        return service.request(
+          'fs_write',
+          {
+            path: String(args.path),
+            dataB64,
+            offset: Number(args?.offset ?? 0),
+            truncate: args?.truncate !== false,
+          },
+          55000,
+        )
+      },
+    }),
+    makeTool({
+      name: 'phone_fs_mkdir',
+      description: '在手机上创建目录（父目录一起建）。',
+      properties: { path: { type: 'string', description: '目录绝对路径' } },
+      required: ['path'],
+      timeoutMs: 15000,
+      present: { card: 'generic', title: '建目录', kind: 'action' },
+      async run(args) {
+        return service.request('fs_mkdir', { path: String(args.path) }, 10000)
+      },
+    }),
+    makeTool({
+      name: 'phone_fs_rm',
+      description: '删除手机上的文件或目录（目录必须 recursive: true）。',
+      properties: {
+        path: { type: 'string', description: '要删除的路径' },
+        recursive: { type: 'boolean', description: '删目录时传 true' },
+      },
+      required: ['path'],
+      timeoutMs: 30000,
+      present: { card: 'generic', title: '删除手机文件', kind: 'action' },
+      async run(args) {
+        return service.request(
+          'fs_rm',
+          { path: String(args.path), recursive: args?.recursive === true },
+          25000,
+        )
+      },
+    }),
+    makeTool({
       name: 'phone_tap',
       description: '点击手机屏幕上的一个坐标。坐标系与 phone_screenshot 返回图片的像素坐标一致。',
       properties: { x: NUMBER, y: NUMBER },

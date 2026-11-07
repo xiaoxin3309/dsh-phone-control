@@ -72,6 +72,7 @@ window.__ModuleLoader__.load({
 .dshpb-banner { border-radius: 8px; padding: 8px 12px; font-size: 13px; }
 .dshpb-ok { background: rgba(47,168,95,.12); color: var(--dsw-alias-text-primary, inherit); }
 .dshpb-err { background: rgba(220,60,60,.14); color: var(--dsw-alias-text-primary, inherit); }
+.dshpb-qr { width: 200px; height: 200px; border-radius: 10px; background: #fff; padding: 8px; }
 `;
 
     function ensureStyle() {
@@ -115,7 +116,25 @@ window.__ModuleLoader__.load({
       const [busy, setBusy] = React.useState(null);
       const [port, setPort] = React.useState("");
       const [bindHost, setBindHost] = React.useState("0.0.0.0");
+      const [qrAddr, setQrAddr] = React.useState("");
       const [now, setNow] = React.useState(Date.now());
+
+      React.useEffect(() => {
+        try {
+          setQrAddr(window.localStorage.getItem("dshpb.qr.address") ?? "");
+        } catch (error) {
+          setQrAddr("");
+        }
+      }, []);
+
+      const saveQrAddr = (value) => {
+        setQrAddr(value);
+        try {
+          window.localStorage.setItem("dshpb.qr.address", value);
+        } catch (error) {
+          /* 隐私模式下写不了 localStorage，不影响这次显示 */
+        }
+      };
 
       React.useEffect(() => {
         ensureStyle();
@@ -158,6 +177,21 @@ window.__ModuleLoader__.load({
           ? "#D08A22"
           : "#9AA0A6";
       const remainMs = status === null ? null : status.codeExpiresAt - now;
+
+      // 二维码里放的就是「手机连接电脑需要的最小信息」：配对码 + 端口（可选地址）。
+      // 手机端扫完自动填好，再点一次连接即可；配对码换新时二维码必须跟着变，
+      // 所以 src 里带上 code 当缓存钥匙。
+      const qrCode = status?.pairingCode ?? "";
+      const qrPayload = (() => {
+        if (qrCode === "") return "";
+        const parts = [`v=1`, `c=${qrCode}`, `p=${status?.port ?? 0}`];
+        const addr = qrAddr.trim();
+        if (addr !== "") {
+          if (/^wss?:\/\//iu.test(addr)) parts.push(`w=${encodeURIComponent(addr)}`);
+          else parts.push(`h=${encodeURIComponent(addr)}`);
+        }
+        return `dsh-phone://pair?${parts.join("&")}`;
+      })();
 
       const run = async (key, action, okText) => {
         setBusy(key);
@@ -249,6 +283,44 @@ window.__ModuleLoader__.load({
               },
               busy === "disconnect" ? "断开中…" : "断开手机",
             ),
+          ),
+        ),
+        // ---- 扫码配对
+        h(
+          "div",
+          { className: "dshpb-card" },
+          h("div", { className: "dshpb-card-title" }, "扫码配对"),
+          qrPayload === ""
+            ? h("div", { className: "dshpb-dim" }, "配对码还没生成，稍等一秒。")
+            : h(
+                "div",
+                { className: "dshpb-row" },
+                h("img", {
+                  className: "dshpb-qr",
+                  alt: "配对二维码",
+                  width: 200,
+                  height: 200,
+                  src: `${BASE}/qr?s=200&d=${encodeURIComponent(qrPayload)}`,
+                }),
+                h(
+                  "div",
+                  { className: "dshpb-dim", style: { maxWidth: "320px" } },
+                  "手机 App 里点「扫码配对」，对着这块图扫一下：自动填好配对码",
+                  qrAddr.trim() === "" ? "和端口" : "、端口和地址",
+                  "，再点「立即连接」即可。配对码每 5 分钟换新，图会跟着自动变。",
+                ),
+              ),
+          h(
+            "div",
+            { className: "dshpb-row" },
+            h("span", { className: "dshpb-label" }, "对外地址"),
+            h("input", {
+              className: "dshpb-input",
+              value: qrAddr,
+              placeholder: "可选，如 wss://你的域名/ws",
+              onChange: (event) => saveQrAddr(event.target.value),
+            }),
+            h("span", { className: "dshpb-dim" }, "填了会一并写进二维码，手机扫码就不用再手填"),
           ),
         ),
         // ---- 监听设置

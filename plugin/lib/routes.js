@@ -11,11 +11,16 @@
  * behave the same way on the same web server.
  */
 
+import qrcode from 'qrcode'
+
 /** Base path every route lives under. Keep in sync with lib/client.js. */
 export const BASE_PATH = '/dsh-phone-control'
 
 /** Largest request body accepted, in bytes. */
 const MAX_BODY_BYTES = 64 * 1024
+
+/** Longest text we are willing to turn into a QR code. */
+const MAX_QR_TEXT = 512
 
 /**
  * Whether a request may reach these routes.
@@ -120,6 +125,24 @@ export function createHandler(service, options = {}) {
 
       if (method === 'GET' && (action === 'state' || action === 'status')) {
         sendJson(res, 200, snapshot())
+        return
+      }
+
+      if (method === 'GET' && action === 'qr') {
+        // Render an arbitrary pairing payload as an SVG QR code. Doing it here
+        // keeps the browser bundle script-only (no bundler, no extra deps on
+        // the client side) while the phone just scans the picture.
+        const text = String(url.searchParams.get('d') ?? '').slice(0, MAX_QR_TEXT)
+        const size = Math.min(Math.max(Number(url.searchParams.get('s') ?? 260) || 260, 120), 640)
+        const svg = text === ''
+          ? ''
+          : await qrcode.toString(text, { type: 'svg', margin: 1, width: size, errorCorrectionLevel: 'M' })
+        res.writeHead(svg === '' ? 400 : 200, {
+          'content-type': 'image/svg+xml; charset=utf-8',
+          'cache-control': 'no-store',
+          'content-length': Buffer.byteLength(svg),
+        })
+        res.end(svg)
         return
       }
 
