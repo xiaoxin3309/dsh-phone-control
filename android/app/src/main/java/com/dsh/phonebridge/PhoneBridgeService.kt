@@ -47,6 +47,10 @@ class PhoneBridgeService : Service(), BridgeClient.Listener {
     private var lastCode = ""
     private var lastWsUrl = ""
     private var lastToken = ""
+    /** 上一次握手用的是配对码（true）还是已保存 token（false）。 */
+    private var lastPreferCode = false
+    /** 认证类失败后只翻转一次凭据，防止码和 token 互相踢成死循环。 */
+    private var credentialFlipped = false
 
     override fun onCreate() {
         super.onCreate()
@@ -78,7 +82,8 @@ class PhoneBridgeService : Service(), BridgeClient.Listener {
             lastPort = port
             lastCode = code
             lastWsUrl = wsUrl
-            connect(host, port, code, token, keepLogin, wsUrl)
+            credentialFlipped = false
+            connect(host, port, code, token, keepLogin, wsUrl, preferCode = code.isNotEmpty())
             return START_STICKY
         }
         return START_STICKY
@@ -100,10 +105,19 @@ class PhoneBridgeService : Service(), BridgeClient.Listener {
         super.onDestroy()
     }
 
-    private fun connect(host: String, port: Int, code: String, token: String, keepLogin: Boolean, wsUrl: String) {
+    private fun connect(
+        host: String,
+        port: Int,
+        code: String,
+        token: String,
+        keepLogin: Boolean,
+        wsUrl: String,
+        preferCode: Boolean = false,
+    ) {
         client?.stop()
         fatalStop = false
         this.keepLogin = keepLogin
+        lastPreferCode = preferCode
         state = "connecting"
         val label = wsUrl.ifEmpty { "$host:$port" }
         broadcast("connecting", "正在连接 $label")
@@ -123,6 +137,7 @@ class PhoneBridgeService : Service(), BridgeClient.Listener {
             deviceId = deviceId,
             listener = this,
             wsUrl = wsUrl.ifEmpty { null },
+            preferCode = preferCode,
         )
         client = bridge
         bridge.start()
@@ -136,6 +151,10 @@ class PhoneBridgeService : Service(), BridgeClient.Listener {
         lastDetail = detail
         if (state == "connected") {
             retryAttempt = 0
+            credentialFlipped = false
+            // 连上之后 token 一定在手：把上次用过的码丢掉。
+            // 旧码留在 lastCode 里，下次电脑端换码就会拿它去撞 BAD_CODE。
+            if (lastCode.isNotEmpty() && TokenStore.get(this).isNotEmpty()) lastCode = ""
             acquireWake()
             updateNotification("已连接：$detail")
         } else {
@@ -151,6 +170,34 @@ class PhoneBridgeService : Service(), BridgeClient.Listener {
         val fatal = listOf("TOKEN_INVALID", "BAD_CODE", "CODE_EXPIRED", "LOCKED", "没有配对码")
             .any { detail.contains(it) }
         if (fatal) {
+            // 认证失败先别判死刑：手上还有另一份凭据就换它再试一次。
+            // 老码撞 BAD_CODE → 改用 token；token 失效 → 清掉再改用码。
+            // 只翻转一次，免得两份凭据互相踢成死循环。
+            if (!credentialFlipped && !detail.contains("LOCKED")) {
+                credentialFlipped = true
+                if (detail.contains("TOKEN_INVALID")) {
+                    lastToken = ""
+                    TokenStore.clear(this)
+                }
+                retryScheduled = true
+                val flip = !lastPreferCode
+                val runnable = Runnable {
+                    retryScheduled = false
+                    retryRunnable = null
+                    if (manualStop) return@Runnable
+                    val token = if (keepLogin) lastToken.ifEmpty { TokenStore.get(this) } else ""
+                    if (flip && lastCode.isEmpty() && token.isEmpty()) {
+                        fatalStop = true
+                        onState("error", detail)
+                        return@Runnable
+                    }
+                    connect(lastHost, lastPort, lastCode, token, keepLogin, lastWsUrl, preferCode = flip)
+                }
+                retryRunnable = runnable
+                broadcast("connecting", "换个凭据重试（${if (flip) "配对码" else "已保存 token"}）")
+                main.postDelayed(runnable, 300)
+                return
+            }
             fatalStop = true
             if (detail.contains("TOKEN_INVALID")) {
                 lastToken = ""
@@ -168,7 +215,8 @@ class PhoneBridgeService : Service(), BridgeClient.Listener {
             retryRunnable = null
             if (manualStop) return@Runnable
             val token = if (keepLogin) lastToken.ifEmpty { TokenStore.get(this) } else ""
-            connect(lastHost, lastPort, lastCode, token, keepLogin, lastWsUrl)
+            // 重连默认用 token：码是会换的，token 不会。
+            connect(lastHost, lastPort, lastCode, token, keepLogin, lastWsUrl, preferCode = lastPreferCode)
         }
         retryRunnable = runnable
         main.postDelayed(runnable, delay)
@@ -209,7 +257,7 @@ class PhoneBridgeService : Service(), BridgeClient.Listener {
         retryAttempt = 0
         broadcast("connecting", "网络已恢复，立即重连")
         val token = if (keepLogin) lastToken.ifEmpty { TokenStore.get(this) } else ""
-        connect(lastHost, lastPort, lastCode, token, keepLogin, lastWsUrl)
+        connect(lastHost, lastPort, lastCode, token, keepLogin, lastWsUrl, preferCode = lastPreferCode && token.isEmpty())
     }
 
     override fun onToken(token: String) {

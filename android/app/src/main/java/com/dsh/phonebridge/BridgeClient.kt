@@ -29,6 +29,14 @@ class BridgeClient(
     private val deviceId: String,
     private val listener: Listener,
     private val wsUrl: String? = null,
+    /**
+     * true = 这次握手用配对码（用户刚输了新码，或 token 被判失效后的兜底）；
+     * false = 有 token 就用 token。
+     *
+     * 这个开关以前是反的：只要 `code` 非空就永远用码，而重连会把上次的码原样带上，
+     * 于是电脑端换码/重启之后手机一直拿旧码握手 → `BAD_CODE`，token 一次都没用上。
+     */
+    private val preferCode: Boolean = false,
 ) {
     interface Listener {
         fun onState(state: String, detail: String)
@@ -158,10 +166,16 @@ class BridgeClient(
             .put("type", "HELLO")
             .put("deviceId", deviceId)
             .put("nonceC", nonceC)
-        if (!code.isNullOrEmpty()) {
+        // token 优先：它是长期凭据，电脑端重启也不会换；配对码 5 分钟就过期，
+        // 拿它握手只会在换码后换来一个 BAD_CODE。只有用户明确要用码（preferCode）
+        // 或者压根没有 token 时才走码。
+        val useCodeFirst = preferCode && !code.isNullOrEmpty()
+        if (useCodeFirst) {
             hello.put("key", code)
         } else if (!token.isNullOrEmpty()) {
             hello.put("token", token)
+        } else if (!code.isNullOrEmpty()) {
+            hello.put("key", code)
         } else {
             throw IllegalStateException("没有配对码，也没有已保存的登录凭证")
         }

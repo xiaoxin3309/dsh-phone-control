@@ -77,7 +77,13 @@ class SettingsActivity : AppCompatActivity() {
             if (ws.isNotEmpty()) bridgeWsUrl.setText(ws)
             if (host.isNotEmpty()) bridgeHost.setText(host)
             log("扫码成功：配对码已填好${if (port.isNotEmpty()) "、端口 $port" else ""}${if (ws.isNotEmpty()) "、地址 $ws" else ""}")
-            toast("已填入扫码结果，点「立即连接」即可")
+            // 二维码里已经带了「码 + 端口（+ 地址）」，够连接了：直接连，不用再点一次。
+            if (code.isNotEmpty() && (host.isNotEmpty() || ws.isNotEmpty())) {
+                toast("已扫到配对信息，正在连接…")
+                connectBridge()
+            } else {
+                toast("已填入扫码结果，补上电脑地址后点「立即连接」")
+            }
         }
 
     /** 统一渲染连接状态标签；设置页重新打开时也用它回填最近状态 */

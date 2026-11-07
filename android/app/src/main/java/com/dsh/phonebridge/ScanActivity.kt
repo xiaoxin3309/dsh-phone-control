@@ -8,8 +8,8 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.view.Surface
 import android.view.SurfaceHolder
-import android.view.SurfaceView
 import android.widget.Button
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
@@ -22,6 +22,7 @@ import com.google.zxing.PlanarYUVLuminanceSource
 import com.google.zxing.common.HybridBinarizer
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.math.abs
 
 /**
  * 扫电脑设置页上的配对二维码。
@@ -33,7 +34,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 class ScanActivity : AppCompatActivity(), SurfaceHolder.Callback, Camera.PreviewCallback {
 
-    private lateinit var preview: SurfaceView
+    private lateinit var preview: AspectSurfaceView
     private lateinit var hint: TextView
     private var camera: Camera? = null
     private var previewWidth = 0
@@ -100,8 +101,15 @@ class ScanActivity : AppCompatActivity(), SurfaceHolder.Callback, Camera.Preview
             }
             val params = cam.parameters
             val sizes = params.supportedPreviewSizes
-            // 720p 左右足够解二维码，帧率还稳；找不到就用最小的一档
-            val size = sizes.firstOrNull { it.width * it.height <= 1280 * 720 } ?: sizes.firstOrNull()
+            // 取景框是竖屏：挑一档「宽高比最接近屏幕」的预览尺寸，黑边最少。
+            // 以前是取第一档 ≤720p 的（通常是 1280x720 横图），直接塞进竖屏 SurfaceView，
+            // 于是画面被横向压扁成一条。
+            val screen = resources.displayMetrics
+            val screenRatio = screen.widthPixels.toFloat() / screen.heightPixels.toFloat()
+            val size = sizes
+                ?.filter { it.width > 0 && it.height > 0 }
+                ?.minByOrNull { abs(it.width.toFloat() / it.height - screenRatio) }
+                ?: sizes?.firstOrNull()
             if (size != null) {
                 params.setPreviewSize(size.width, size.height)
                 previewWidth = size.width
@@ -111,6 +119,18 @@ class ScanActivity : AppCompatActivity(), SurfaceHolder.Callback, Camera.Preview
                 params.focusMode = Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE
             }
             cam.parameters = params
+            // Camera1 默认按传感器方向输出：竖屏时画面是躺倒的，再被 stretched 到满屏就更歪。
+            // 先声明显示方向，再让 SurfaceView 按旋转后的比例决定高度，画面既不旋转也不变形。
+            val orientation = displayOrientation()
+            cam.setDisplayOrientation(orientation)
+            if (size != null) {
+                val rotated = orientation % 180 != 0
+                preview.heightRatio = if (rotated) {
+                    size.width.toFloat() / size.height
+                } else {
+                    size.height.toFloat() / size.width
+                }
+            }
             cam.setPreviewDisplay(holder)
             cam.setPreviewCallback(this)
             cam.startPreview()
@@ -118,6 +138,28 @@ class ScanActivity : AppCompatActivity(), SurfaceHolder.Callback, Camera.Preview
             hint.text = "把二维码放进取景框"
         } catch (error: Exception) {
             hint.text = "打开摄像头失败：${error.message}"
+        }
+    }
+
+    /** 让预览在这个屏幕旋转下正立：后置用传感器方向减旋转角，前置还要再镜像一次。 */
+    @Suppress("DEPRECATION")
+    private fun displayOrientation(): Int {
+        val info = Camera.CameraInfo()
+        try {
+            Camera.getCameraInfo(0, info)
+        } catch (_: Throwable) {
+            return 90
+        }
+        val rotation = when (windowManager.defaultDisplay.rotation) {
+            Surface.ROTATION_90 -> 90
+            Surface.ROTATION_180 -> 180
+            Surface.ROTATION_270 -> 270
+            else -> 0
+        }
+        return if (info.facing == Camera.CameraInfo.CAMERA_FACING_FRONT) {
+            (360 - (info.orientation + rotation) % 360) % 360
+        } else {
+            (info.orientation - rotation + 360) % 360
         }
     }
 
