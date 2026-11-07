@@ -142,9 +142,25 @@ window.__ModuleLoader__.load({
 
       React.useEffect(() => {
         let alive = true;
+        let rotating = false;
         const tick = async () => {
           try {
-            const next = await call("/state");
+            let next = await call("/state");
+            if (!alive) return;
+            // 配对码 5 分钟一换：宁可面板上永远显示一个当下的码，
+            // 也不要让用户照着过期码去配、白吃一次 BAD_CODE / CODE_EXPIRED。
+            const expiresAt = Number(next?.status?.codeExpiresAt ?? 0);
+            if (expiresAt > 0 && expiresAt <= Date.now() && !rotating) {
+              rotating = true;
+              try {
+                const fresh = await call("/refresh", {});
+                if (fresh !== undefined) next = fresh;
+              } catch (cause) {
+                /* 换码失败就先把旧状态画出来，下一轮再试 */
+              } finally {
+                rotating = false;
+              }
+            }
             if (!alive) return;
             setState(next);
             setError(null);

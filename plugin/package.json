@@ -1,6 +1,6 @@
 {
   "name": "dsh-phone-control",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Control an Android phone from DeepSeek Harness: read the accessibility tree, tap by text, type text, take screenshots, read and write files. Pair the companion app once — by code or by scanning a QR code.",
   "type": "module",
   "main": "index.js",
