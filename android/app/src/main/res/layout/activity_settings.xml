@@ -224,6 +224,14 @@
                     android:text="@string/bridge_tip"
                     android:textAppearance="@style/TextAppearance.Dsh.Hint"
                     android:textColor="?attr/colorOnSurfaceVariant" />
+
+                <Button
+                    android:id="@+id/scanQrButton"
+                    style="@style/Widget.Dsh.Button.Outlined"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:text="@string/scan_pair" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
@@ -379,6 +387,81 @@
                         android:layout_weight="1"
                         android:text="@string/test_tap" />
                 </LinearLayout>
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- ⑤b 权限与安全 -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="18dp">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/section_perms"
+                    android:textAppearance="@style/TextAppearance.Dsh.Section" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="@string/perms_hint"
+                    android:textAppearance="@style/TextAppearance.Dsh.Hint"
+                    android:textColor="?attr/colorOnSurfaceVariant" />
+
+                <com.google.android.material.materialswitch.MaterialSwitch
+                    android:id="@+id/cameraSwitch"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:text="@string/perm_camera"
+                    android:textSize="14sp" />
+
+                <TextView
+                    android:id="@+id/cameraStatus"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/perm_camera_hint"
+                    android:textAppearance="@style/TextAppearance.Dsh.Hint"
+                    android:textColor="?attr/colorOnSurfaceVariant" />
+
+                <com.google.android.material.materialswitch.MaterialSwitch
+                    android:id="@+id/filesSwitch"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:text="@string/perm_files"
+                    android:textSize="14sp" />
+
+                <TextView
+                    android:id="@+id/filesStatus"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/perm_files_hint"
+                    android:textAppearance="@style/TextAppearance.Dsh.Hint"
+                    android:textColor="?attr/colorOnSurfaceVariant" />
+
+                <com.google.android.material.materialswitch.MaterialSwitch
+                    android:id="@+id/selfControlSwitch"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:text="@string/perm_self"
+                    android:textSize="14sp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/perm_self_hint"
+                    android:textAppearance="@style/TextAppearance.Dsh.Hint"
+                    android:textColor="?attr/colorOnSurfaceVariant" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 

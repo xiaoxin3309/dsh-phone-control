@@ -10,6 +10,7 @@ import android.content.res.Configuration
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.provider.Settings
 import android.view.View
 import android.widget.Button
@@ -19,12 +20,14 @@ import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import com.google.android.material.materialswitch.MaterialSwitch
 
 class SettingsActivity : AppCompatActivity() {
 
@@ -43,6 +46,11 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var logView: TextView
     private lateinit var accessibilityStatus: TextView
     private lateinit var statusDot: TextView
+    private lateinit var cameraSwitch: MaterialSwitch
+    private lateinit var cameraStatus: TextView
+    private lateinit var filesSwitch: MaterialSwitch
+    private lateinit var filesStatus: TextView
+    private lateinit var selfControlSwitch: MaterialSwitch
 
     private val stateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -53,6 +61,24 @@ class SettingsActivity : AppCompatActivity() {
             if (state == "connected") bridgeStatus.postDelayed({ refreshTokenStatus() }, 1200)
         }
     }
+
+    /** 扫电脑上的配对二维码 → 回填配对码 / 端口 / 地址 */
+    private val scanLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode != RESULT_OK) return@registerForActivityResult
+            val data = result.data ?: return@registerForActivityResult
+            val code = data.getStringExtra(ScanActivity.EXTRA_CODE).orEmpty()
+            if (code.isEmpty()) return@registerForActivityResult
+            val port = data.getStringExtra(ScanActivity.EXTRA_PORT).orEmpty()
+            val ws = data.getStringExtra(ScanActivity.EXTRA_WS).orEmpty()
+            val host = data.getStringExtra(ScanActivity.EXTRA_HOST).orEmpty()
+            bridgeCode.setText(code)
+            if (port.isNotEmpty()) bridgePort.setText(port)
+            if (ws.isNotEmpty()) bridgeWsUrl.setText(ws)
+            if (host.isNotEmpty()) bridgeHost.setText(host)
+            log("扫码成功：配对码已填好${if (port.isNotEmpty()) "、端口 $port" else ""}${if (ws.isNotEmpty()) "、地址 $ws" else ""}")
+            toast("已填入扫码结果，点「立即连接」即可")
+        }
 
     /** 统一渲染连接状态标签；设置页重新打开时也用它回填最近状态 */
     private fun renderState(state: String, detail: String) {
@@ -121,6 +147,11 @@ class SettingsActivity : AppCompatActivity() {
         logView = findViewById(R.id.logView)
         accessibilityStatus = findViewById(R.id.accessibilityStatus)
         statusDot = findViewById(R.id.statusDot)
+        cameraSwitch = findViewById(R.id.cameraSwitch)
+        cameraStatus = findViewById(R.id.cameraStatus)
+        filesSwitch = findViewById(R.id.filesSwitch)
+        filesStatus = findViewById(R.id.filesStatus)
+        selfControlSwitch = findViewById(R.id.selfControlSwitch)
 
         val prefs = prefs()
         urlInput.setText(prefs.getString(KEY_DSH_URL, ""))
@@ -148,6 +179,35 @@ class SettingsActivity : AppCompatActivity() {
             startActivity(Intent(this, GuideActivity::class.java))
         }
         findViewById<View>(R.id.githubLinkBox).setOnClickListener { openRepoInBrowser() }
+        findViewById<Button>(R.id.scanQrButton).setOnClickListener { openScanner() }
+
+        // 权限与安全：开关反映系统里的真实授权状态，打开时才去申请
+        refreshPermissionUi()
+        selfControlSwitch.isChecked = prefs().getBoolean(KEY_ALLOW_SELF_CONTROL, false)
+        cameraSwitch.setOnCheckedChangeListener { _, checked ->
+            if (checked) {
+                if (!hasCameraPermission()) requestCameraPermission()
+            } else if (hasCameraPermission()) {
+                refreshPermissionUi()
+                toast("关掉开关不会撤销系统权限；要彻底撤销请到系统「应用 → 权限」里关闭摄像头")
+            }
+        }
+        filesSwitch.setOnCheckedChangeListener { _, checked ->
+            if (checked) {
+                if (!hasAllFilesAccess()) openAllFilesSettings()
+            } else if (hasAllFilesAccess()) {
+                refreshPermissionUi()
+                toast("「所有文件访问」只能在系统设置里关闭，取消后 App 只能访问自己的私有目录")
+            }
+        }
+        selfControlSwitch.setOnCheckedChangeListener { _, checked ->
+            prefs().edit().putBoolean(KEY_ALLOW_SELF_CONTROL, checked).apply()
+            if (checked) {
+                log("已允许远端操作本 App 界面：配对码、端口、权限开关都能被远程点到，请谨慎")
+            } else {
+                log("已禁止远端操作本 App 界面（默认）：tap/文字点击/输入类命令会被 SELF_PROTECTED 拒绝")
+            }
+        }
 
         keepAwake.setOnCheckedChangeListener { _, checked ->
             prefs().edit().putBoolean(KEY_KEEP_AWAKE, checked).apply()
@@ -189,8 +249,71 @@ class SettingsActivity : AppCompatActivity() {
         }
     }
 
-    /** 用系统默认浏览器打开开源仓库；本机没有浏览器时退化成复制链接 */
-    private fun openRepoInBrowser() {
+    private fun openScanner() {
+        if (!hasCameraPermission()) {
+            toast("请先打开「权限与安全 → 摄像头」，扫码要用它")
+            return
+        }
+        scanLauncher.launch(Intent(this, ScanActivity::class.java))
+    }
+
+    private fun hasCameraPermission(): Boolean =
+        ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+
+    private fun requestCameraPermission() {
+        if (shouldShowRequestPermissionRationale(Manifest.permission.CAMERA)) {
+            toast("摄像头用于电脑端远程拍照 / 扫码配对，只在你打开开关后才申请")
+        }
+        ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.CAMERA), REQ_CAMERA)
+    }
+
+    private fun hasAllFilesAccess(): Boolean =
+        Build.VERSION.SDK_INT >= 30 && Environment.isExternalStorageManager()
+
+    /** 「所有文件访问」只能由用户在系统页面授权，这里直接跳到本 App 的那一页 */
+    private fun openAllFilesSettings() {
+        if (Build.VERSION.SDK_INT < 30) {
+            toast("当前系统版本不需要「所有文件访问」，已按普通存储权限处理")
+            return
+        }
+        val perApp = Intent(
+            Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+            Uri.parse("package:$packageName"),
+        )
+        try {
+            startActivity(perApp)
+        } catch (e: Exception) {
+            runCatching { startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)) }
+                .onFailure { toast("没有找到「所有文件访问」设置页") }
+        }
+    }
+
+    private fun refreshPermissionUi() {
+        val camera = hasCameraPermission()
+        cameraSwitch.isChecked = camera
+        cameraStatus.text = getString(if (camera) R.string.perm_camera_on else R.string.perm_camera_off)
+        val files = hasAllFilesAccess()
+        filesSwitch.isChecked = files
+        filesStatus.text = getString(if (files) R.string.perm_files_on else R.string.perm_files_off)
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray,
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQ_CAMERA) {
+            refreshPermissionUi()
+            if (hasCameraPermission()) {
+                log("摄像头权限已授予")
+            } else {
+                log("摄像头权限未授予")
+            }
+        }
+    }
+
+    /** 用系统默认浏览器打开开源仓库；本机没有浏览器时退化成复制链接 */    private fun openRepoInBrowser() {
         val url = "https://github.com/xiaoxin3309/dsh-phone-control"
         try {
             startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
@@ -227,6 +350,8 @@ class SettingsActivity : AppCompatActivity() {
         // 否则会显示上一次的（甚至默认的「未连接」）标签。
         val lastState = PhoneBridgeService.lastState
         if (lastState.isNotEmpty()) renderState(lastState, PhoneBridgeService.lastDetail)
+        // 从系统设置页回来时权限可能已经变了
+        refreshPermissionUi()
     }
 
     private fun saveSettings() {
@@ -319,6 +444,7 @@ class SettingsActivity : AppCompatActivity() {
     private fun toast(message: String) = Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
 
     companion object {
+        private const val REQ_CAMERA = 101
         private const val KEY_DSH_URL = "dsh_url"
         private const val KEY_BRIDGE_HOST = "bridge_host"
         private const val KEY_BRIDGE_PORT = "bridge_port"
@@ -328,5 +454,6 @@ class SettingsActivity : AppCompatActivity() {
         private const val KEY_KEEP_AWAKE = "keep_awake"
         private const val KEY_DIM_ON_CONTROL = "dim_on_control"
         private const val KEY_DIM_LEVEL = "dim_level"
+        private const val KEY_ALLOW_SELF_CONTROL = "allow_self_control"
     }
 }

@@ -14,6 +14,7 @@ import android.graphics.Bitmap
 import android.net.ConnectivityManager
 import android.net.Network
 import android.os.Build
+import android.os.Environment
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -22,8 +23,11 @@ import android.provider.Settings
 import android.util.Base64
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.RandomAccessFile
 
 class PhoneBridgeService : Service(), BridgeClient.Listener {
 
@@ -222,6 +226,16 @@ class PhoneBridgeService : Service(), BridgeClient.Listener {
 
     private fun dispatch(id: Long, command: String, args: JSONObject) {
         val accessibility = DshAccessibilityService.instance
+        // 默认禁止远程操作「手机桥自己的界面」：配对码、端口、权限开关都在那个页面上，
+        // 一旦允许远程点它，等于把提权入口交给了远端。用户可在设置页显式打开。
+        if (command in SELF_GUARDED && selfControlBlocked(accessibility)) {
+            replyError(
+                id,
+                "SELF_PROTECTED",
+                "已禁止远程操作手机桥自身的设置页（如需放开，请在本机「设置 → 权限与安全 → 允许远程操作本 App」里打开）",
+            )
+            return
+        }
         when (command) {
             "screenshot" -> {
                 if (accessibility == null) {
@@ -396,12 +410,213 @@ class PhoneBridgeService : Service(), BridgeClient.Listener {
                 reply(id, JSONObject().put("apps", org.json.JSONArray(apps)))
             }
 
+            "fs_list" -> {
+                val path = args.optString("path").ifEmpty { "/sdcard" }
+                fsDenied(path)?.let { replyError(id, "PERMISSION_DENIED", it); return }
+                val dir = File(path)
+                if (!dir.exists()) {
+                    replyError(id, "FS_NOT_FOUND", "路径不存在：$path")
+                    return
+                }
+                if (!dir.isDirectory) {
+                    replyError(id, "FS_NOT_DIR", "不是目录：$path")
+                    return
+                }
+                val max = args.optInt("maxEntries", 500).coerceIn(1, 5000)
+                val all = dir.listFiles()?.sortedWith(
+                    compareByDescending<File> { it.isDirectory }
+                        .thenBy { it.name.lowercase() },
+                ) ?: emptyList()
+                val list = JSONArray()
+                var added = 0
+                for (child in all) {
+                    if (added >= max) break
+                    list.put(
+                        JSONObject()
+                            .put("name", child.name)
+                            .put("path", child.absolutePath)
+                            .put("dir", child.isDirectory)
+                            .put("size", if (child.isFile) child.length() else 0L)
+                            .put("mtime", child.lastModified())
+                            .put("readable", child.canRead())
+                            .put("writable", child.canWrite()),
+                    )
+                    added++
+                }
+                reply(
+                    id,
+                    JSONObject()
+                        .put("path", dir.absolutePath)
+                        .put("count", added)
+                        .put("total", all.size)
+                        .put("truncated", all.size > added)
+                        .put("entries", list),
+                )
+            }
+
+            "fs_stat" -> {
+                val path = args.optString("path")
+                if (path.isEmpty()) {
+                    replyError(id, "BAD_ARGS", "缺少 path")
+                    return
+                }
+                fsDenied(path)?.let { replyError(id, "PERMISSION_DENIED", it); return }
+                val file = File(path)
+                if (!file.exists()) {
+                    replyError(id, "FS_NOT_FOUND", "路径不存在：$path")
+                    return
+                }
+                reply(
+                    id,
+                    JSONObject()
+                        .put("path", file.absolutePath)
+                        .put("exists", true)
+                        .put("dir", file.isDirectory)
+                        .put("size", if (file.isFile) file.length() else 0L)
+                        .put("mtime", file.lastModified())
+                        .put("readable", file.canRead())
+                        .put("writable", file.canWrite()),
+                )
+            }
+
+            "fs_read" -> {
+                val path = args.optString("path")
+                if (path.isEmpty()) {
+                    replyError(id, "BAD_ARGS", "缺少 path")
+                    return
+                }
+                fsDenied(path)?.let { replyError(id, "PERMISSION_DENIED", it); return }
+                val file = File(path)
+                if (!file.exists() || !file.isFile) {
+                    replyError(id, "FS_NOT_FOUND", "不是可读文件：$path")
+                    return
+                }
+                val offset = args.optLong("offset", 0L).coerceAtLeast(0L)
+                val size = file.length()
+                if (offset > size) {
+                    replyError(id, "FS_RANGE", "offset 超出文件长度（size=$size）")
+                    return
+                }
+                val length = args.optLong("length", 512L * 1024).coerceIn(1L, 4L * 1024 * 1024)
+                val want = minOf(length, size - offset).toInt()
+                val buffer = ByteArray(want)
+                val read = RandomAccessFile(file, "r").use { raf ->
+                    raf.seek(offset)
+                    var total = 0
+                    while (total < want) {
+                        val n = raf.read(buffer, total, want - total)
+                        if (n <= 0) break
+                        total += n
+                    }
+                    total
+                }
+                val chunk = if (read == want) buffer else buffer.copyOf(read)
+                reply(
+                    id,
+                    JSONObject()
+                        .put("path", file.absolutePath)
+                        .put("offset", offset)
+                        .put("bytes", chunk.size)
+                        .put("nextOffset", offset + chunk.size)
+                        .put("size", size)
+                        .put("eof", offset + chunk.size >= size)
+                        .put("dataB64", Base64.encodeToString(chunk, Base64.NO_WRAP)),
+                )
+            }
+
+            "fs_write" -> {
+                val path = args.optString("path")
+                val data = args.optString("dataB64")
+                if (path.isEmpty()) {
+                    replyError(id, "BAD_ARGS", "缺少 path")
+                    return
+                }
+                fsDenied(path)?.let { replyError(id, "PERMISSION_DENIED", it); return }
+                val bytes = try {
+                    Base64.decode(data, Base64.DEFAULT)
+                } catch (error: Throwable) {
+                    replyError(id, "BAD_ARGS", "dataB64 不是合法 base64")
+                    return
+                }
+                val file = File(path)
+                file.parentFile?.let { if (!it.exists() && !it.mkdirs()) { replyError(id, "FS_MKDIR_FAILED", "无法创建目录：${it.absolutePath}"); return } }
+                val offset = args.optLong("offset", 0L).coerceAtLeast(0L)
+                val truncate = args.optBoolean("truncate", true)
+                try {
+                    RandomAccessFile(file, "rw").use { raf ->
+                        if (truncate) raf.setLength(0)
+                        raf.seek(offset)
+                        raf.write(bytes)
+                    }
+                } catch (error: Throwable) {
+                    replyError(id, "FS_WRITE_FAILED", error.message ?: "写入失败")
+                    return
+                }
+                reply(
+                    id,
+                    JSONObject()
+                        .put("path", file.absolutePath)
+                        .put("written", bytes.size)
+                        .put("size", file.length())
+                        .put("nextOffset", offset + bytes.size),
+                )
+            }
+
+            "fs_mkdir" -> {
+                val path = args.optString("path")
+                if (path.isEmpty()) {
+                    replyError(id, "BAD_ARGS", "缺少 path")
+                    return
+                }
+                fsDenied(path)?.let { replyError(id, "PERMISSION_DENIED", it); return }
+                val dir = File(path)
+                val ok = dir.exists() && dir.isDirectory || dir.mkdirs()
+                if (ok) reply(id, JSONObject().put("ok", true).put("path", dir.absolutePath))
+                else replyError(id, "FS_MKDIR_FAILED", "创建目录失败：$path")
+            }
+
+            "fs_rm" -> {
+                val path = args.optString("path")
+                if (path.isEmpty()) {
+                    replyError(id, "BAD_ARGS", "缺少 path")
+                    return
+                }
+                fsDenied(path)?.let { replyError(id, "PERMISSION_DENIED", it); return }
+                val file = File(path)
+                if (!file.exists()) {
+                    replyError(id, "FS_NOT_FOUND", "路径不存在：$path")
+                    return
+                }
+                val recursive = args.optBoolean("recursive", false)
+                if (file.isDirectory && !recursive) {
+                    replyError(id, "FS_NOT_EMPTY", "是目录，需要 recursive=true 才会删除")
+                    return
+                }
+                val ok = file.deleteRecursively()
+                reply(id, JSONObject().put("ok", ok).put("path", file.absolutePath))
+            }
+
             else -> replyError(id, "UNSUPPORTED", "手机桥不支持命令：$command")
         }
     }
 
     private fun reply(id: Long, result: JSONObject) {
         client?.sendResult(id, true, result, null, null)
+    }
+
+    /**
+     * 文件命令的权限闸：有「所有文件访问」就全放行；
+     * 没有的话只放行 App 私有目录（filesDir / cacheDir / 外部私有目录），
+     * 这样关掉开关时也不能拿它当跳板读别人的数据。
+     */
+    private fun fsDenied(path: String?): String? {
+        if (Environment.isExternalStorageManager()) return null
+        val target = runCatching { File(path ?: "").canonicalPath }.getOrElse { return "路径不合法" }
+        val allowed = listOfNotNull(
+            filesDir, cacheDir, getExternalFilesDir(null), getExternalCacheDir(),
+        ).map { runCatching { it.canonicalPath }.getOrNull() }.filterNotNull()
+        if (allowed.any { target == it || target.startsWith(it + File.separator) }) return null
+        return "没有「所有文件访问」权限：请到本机「设置 → 权限与安全 → 文件读写」打开；当前只允许访问 App 私有目录"
     }
 
     private fun replyError(id: Long, code: String, message: String) {
@@ -521,7 +736,23 @@ class PhoneBridgeService : Service(), BridgeClient.Listener {
         const val EXTRA_DETAIL = "detail"
         const val PREFS = "dsh_phone_bridge"
         const val KEY_TOKEN = "bridge_token"
+        const val KEY_ALLOW_SELF_CONTROL = "allow_self_control"
         const val CHANNEL = "phone_bridge_link"
         const val NOTIFICATION_ID = 41
+
+        /** 会被「禁止远程操作本 App」这条规则拦下的命令（只读类不拦） */
+        private val SELF_GUARDED = setOf("tap", "long_press", "swipe", "tap_text", "set_text", "input")
+    }
+
+    /**
+     * 当前前台是不是手机桥自己、且用户没有显式放开远程操作。
+     * 设置页里的配对码、端口、权限开关都属于「提权入口」，默认不给远端碰。
+     */
+    private fun selfControlBlocked(accessibility: DshAccessibilityService?): Boolean {
+        val allow = getSharedPreferences(PREFS, MODE_PRIVATE)
+            .getBoolean(KEY_ALLOW_SELF_CONTROL, false)
+        if (allow) return false
+        val foreground = accessibility?.currentPackage() ?: return false
+        return foreground == packageName
     }
 }

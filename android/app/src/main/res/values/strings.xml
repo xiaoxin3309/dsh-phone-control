@@ -52,4 +52,22 @@
     <string name="log_empty">（暂无日志）</string>
     <string name="github_link">GitHub 开源仓库：xiaoxin3309/dsh-phone-control</string>
     <string name="github_link_hint">遇到问题、想提需求或自己改，都可以在仓库里说</string>
+
+    <!-- v0.0.30 权限与安全 -->
+    <string name="section_perms">权限与安全</string>
+    <string name="perms_hint">默认只给最小权限；下面每一项都由你手工打开，随时可以关掉。</string>
+    <string name="perm_camera">摄像头</string>
+    <string name="perm_camera_hint">开启后电脑端可以要求手机拍照 / 扫码配对。</string>
+    <string name="perm_camera_on">摄像头：已授权</string>
+    <string name="perm_camera_off">摄像头：未授权，点开关申请权限</string>
+    <string name="perm_files">文件读写（所有文件访问）</string>
+    <string name="perm_files_hint">开启后电脑端可以浏览、读取、写入手机存储里的文件；关闭时只允许 App 私有目录。</string>
+    <string name="perm_files_on">文件读写：已获得所有文件访问权限</string>
+    <string name="perm_files_off">文件读写：仅 App 私有目录，点开关去系统设置授权</string>
+    <string name="perm_self">允许远程操作本 App 界面</string>
+    <string name="perm_self_hint">默认关闭：配对码、端口、权限开关都在本 App 的设置页里，远端不该能点。确实需要时再打开。</string>
+
+    <!-- v0.0.30 扫码配对 -->
+    <string name="scan_pair">扫码配对（扫电脑上的二维码）</string>
+    <string name="scan_hint">把电脑「设置 → 手机桥 → 扫码配对」里的二维码放进取景框，扫到会自动填好配对码。</string>
 </resources>

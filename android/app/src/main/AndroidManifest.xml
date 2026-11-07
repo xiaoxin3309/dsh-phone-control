@@ -17,6 +17,11 @@
         </intent>
     </queries>
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- 远程文件读写：需要「所有文件访问权限」，在设置页里跳系统开关授权 -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+    <!-- 摄像头：设置页里有开关，默认关闭，用到时再申请 -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <application
         android:allowBackup="false"
@@ -48,6 +53,13 @@
             android:exported="false"
             android:label="@string/guide_title"
             android:parentActivityName=".SettingsActivity" />
+
+        <activity
+            android:name=".ScanActivity"
+            android:exported="false"
+            android:label="@string/scan_pair"
+            android:parentActivityName=".SettingsActivity"
+            android:screenOrientation="portrait" />
 
         <service
             android:name=".PhoneBridgeService"
