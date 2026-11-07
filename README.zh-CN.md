@@ -24,7 +24,7 @@ JSON（通常几百 token），而且带着截图给不了的信息：文字、v
 ## 仓库结构
 
 ```
-plugin/        DSH 插件：15 个工具 + 设置面板（npm 包名 `dsh-phone-control`）
+plugin/        DSH 插件：21 个工具 + 设置面板（npm 包名 `dsh-phone-control`）
 android/       Android App：无障碍服务 + 连接客户端的实现
 verification/  用 Node.js 跑协议、设置接口和打包产物的验证脚本
 ```
@@ -42,7 +42,8 @@ verification/  用 Node.js 跑协议、设置接口和打包产物的验证脚�
 2. 重启 DSH，*设置 → 手机桥*面板就会出现。
 3. 在手机上安装本仓库 Release 里的 APK。
 4. 打开 App，开启**无障碍服务**（截图和点击都依赖它）。
-5. 在 DSH 的「手机桥」面板里看 **8 位配对码**，填进 App，点**连接**。面板变绿、通知显示「已连接」即可。
+5. 在 DSH 的「手机桥」面板里看 **8 位配对码**，填进 App，点**连接**；或者省掉手打——用 App 设置页的
+   **扫码配对**扫面板上那张二维码，码、端口、地址会自动填好。面板变绿、通知显示「已连接」即可。
 
 配对成功会在手机上保存一个 30 天的 token，以后打开 App 会自动重连。
 
@@ -82,7 +83,7 @@ git clone <本仓库>
 npm install <仓库>/plugin --prefix ~/.dsh/profiles/desktop
 ```
 
-插件唯一的运行时依赖是 `ws`；已经发布到 npm 的包会把依赖一起带上。
+插件的运行时依赖是 `ws` 和 `qrcode`（二维码路由用）；已经发布到 npm 的包会把依赖一起带上。
 
 ## 设置面板
 
@@ -90,6 +91,7 @@ npm install <仓库>/plugin --prefix ~/.dsh/profiles/desktop
 
 - 连接状态灯（绿=已连接，黄=连接中，灰=空闲）
 - 8 位配对码（带倒计时）和**换一个**按钮
+- **配对二维码**（内容 `dsh-phone://pair?v=1&c=…&p=…&w=…`），配对码或对外地址一变就重画；手机扫码即配对
 - 监听地址与端口
 - 已配对设备数、活动会话数、失败次数
 - **断开手机**按钮
@@ -145,6 +147,9 @@ ingress:
 | `phone_input` | 向当前焦点输入框打字 |
 | `phone_key` | `back` / `home` / `recents` / `notifications` |
 | `phone_open_app` / `phone_current_app` / `phone_list_apps` | 打开、识别、列出应用 |
+| `phone_fs_list` / `phone_fs_stat` | 列目录（默认 `/sdcard`）/ 看某个路径的类型、大小、读写权限 |
+| `phone_fs_read` / `phone_fs_write` | 读文件（UTF-8 文本或 base64，`offset`/`length` 分块）/ 写文本或 base64 |
+| `phone_fs_mkdir` / `phone_fs_rm` | 建目录（父目录一起建）/ 删文件或目录 |
 | `phone_disconnect` | 从电脑端断开当前会话 |
 
 典型流程：
@@ -155,6 +160,14 @@ phone_tap_text {text: "登录"}       → 点它
 phone_set_text {target: "邮箱", text: "..."}   → 填字段
 phone_ui_dump                      → 确认界面已经变了
 ```
+
+两个默认打开的保险：
+
+- 手机前台**就是手机桥自己**的时候，`phone_tap` / `phone_tap_text` / `phone_set_text` / `phone_swipe` /
+  `phone_input` 一律回 `SELF_PROTECTED`——免得 Agent 把放它进来的那个界面点坏。设置页「权限与安全」里有
+  开关（默认关）可以放开。
+- 没开「所有文件访问」时，文件类工具只能碰 App 私有目录，越界回 `PERMISSION_DENIED`；那张卡片能直接跳到
+  系统开关。
 
 ## 工作原理
 
@@ -168,14 +181,15 @@ phone_ui_dump                      → 确认界面已经变了
   （配对码经 PBKDF2 拉伸，或预共享密钥）经 HKDF 派生，双方用 HMAC 互证；之后全部流量用 AES-256-GCM，
   序号写进 nonce。
 - 配对成功签发 256 位随机 token，服务端只存它的 SHA-256（`<profile>/phone-bridge-token.json`）。
-  换 token 时旧的仍保留 10 分钟宽限，避免重连被自己锁死。
+  换 token 时旧的仍保留 **24 小时**宽限，治「睡一觉再连就 TOKEN_INVALID」。
 - 配对码 5 分钟过期、每次配对成功后立即轮换；连续 5 次错误锁定 5 分钟，强制换码即解锁。
 - HTTP 设置接口只接受同源或回环地址的请求。
 
 ## 安全提示
 
 - 插件默认监听 `0.0.0.0:8788`。不建议直接把这端口暴露在公网，请放在隧道后面；只用隧道时也可以绑 `127.0.0.1`。
-- 无障碍服务能读屏和点击屏幕上的一切。只配对你自己控制的设备，用完后在面板里断开并清除登录凭证。
+- 无障碍服务能读屏和点击屏幕上的一切；开了「所有文件访问」之后，文件类工具也能读写 App 能碰到的任何路径。
+  只配对你自己控制的设备，不需要时把「允许远程操作本 App」关着，用完后在面板里断开并清除登录凭证。
 - token 调试日志默认关闭，只有设 `DSH_PHONE_DEBUG=1` 时才写。
 
 ## 常见问题
@@ -190,7 +204,9 @@ phone_ui_dump                      → 确认界面已经变了
 | `ACCESSIBILITY_OFF` | 无障碍没开 | 在 App 里开启；每次覆盖安装后都要重新开 |
 | `NODE_NOT_FOUND` | 没有匹配的控件 | 先 dump 控件树，或改用截图 |
 | `NOT_EDITABLE` | 匹配到的控件不能输入 | 直接定位到输入框本身 |
+| `SELF_PROTECTED` | 输入类命令打到了手机桥自己的界面 | 先把前台切走，或打开「允许远程操作本 App」 |
 | 超时 | 手机休眠或离线 | 唤醒手机，App 会自动重连 |
+| `PERMISSION_DENIED` | 没开「所有文件访问」，路径越出 App 沙箱 | 在 App 设置页「权限与安全」里授权 |
 
 ## 编译 Android App
 

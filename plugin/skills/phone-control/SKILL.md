@@ -1,6 +1,6 @@
 ---
 name: phone-control
-description: 通过 DSH 手机桥操控已配对的 Android 手机：先截图确认画面，再按截图像素坐标点击、长按、滑动、输入文本、返回/桌面/最近任务或打开应用。
+description: 通过 DSH 手机桥操控已配对的 Android 手机：读控件树/按文字点击/输入文字，必要时截图和坐标操作，还能列目录、读写文件、建删目录。手机 App 需已连接电脑并开启无障碍服务。
 user-invocable: true
 disable-model-invocation: false
 ---
@@ -17,6 +17,7 @@ disable-model-invocation: false
 4. **操作后验证。** 点击、输入、滑动后重新 `phone_ui_dump`（或截图）确认界面确实变化；没有变化就报告，不要连续盲点。
 5. **敏感操作先问。** 支付、转账、发消息、删除数据、修改账号设置前，先向用户确认；用户没有明确要求就不要做。
 6. **失败就说失败。** `NO_DEVICE` 表示手机没连接；`TIMEOUT` 表示手机没响应；`NOT_EDITABLE` 表示该输入框拒绝直接写入（改用 `phone_input` 或让用户手输）；`NODE_NOT_FOUND` 表示树上没有这个文字（先 `phone_ui_dump` 看看实际文案）。
+7. **文件操作先看清再动手。** 写之前先 `phone_fs_stat` / `phone_fs_read` 确认目标（`truncate` 默认覆盖！）；`phone_fs_rm` 删的是用户手机上的真实文件，除非用户明确点名，否则不要删，也不要对 `/sdcard` 之类的大目录跑递归删除。
 
 ## 工具
 
@@ -34,6 +35,10 @@ disable-model-invocation: false
 - `phone_open_app`：按包名打开应用。
 - `phone_current_app`：查看当前前台应用。
 - `phone_list_apps`：列出已安装且可启动的应用（约 250 个）。
+- `phone_fs_list` / `phone_fs_stat`：列目录（默认 `/sdcard`，`maxEntries` 默认 500）、看某个路径的类型/大小/读写权限。
+- `phone_fs_read`：读文件，默认 UTF-8 文本（`maxChars` 默认 20000 会截断），`base64: true` 返回原始字节；大文件用 `offset` + `length` 分块（默认 512 KB，上限 4 MB）。
+- `phone_fs_write`：写文件，文本用 `text`、二进制用 `dataB64`；`truncate` 默认 `true`（覆盖），传 `false` 才续写；父目录自动建。
+- `phone_fs_mkdir` / `phone_fs_rm`：建目录（父目录一起建）/ 删文件或目录（删目录必须 `recursive: true`）。
 - `phone_disconnect`：从电脑端断开当前会话。
 
 ## 坐标建议（iQOO V2425A，截图 1260×2800）
@@ -52,6 +57,8 @@ disable-model-invocation: false
 | `BAD_CODE` | 配对码错误 | 核对 8 位数字，注意剩余次数 |
 | `TOKEN_INVALID` | 登录凭证失效 | 手机 App 会清空旧 token，重新配对 |
 | `TIMEOUT` | 手机未在超时内响应 | 重新截图确认设备是否卡死 |
+| `SELF_PROTECTED` | 输入类命令打到手机桥自己的界面（默认保护） | 先把前台切走；或让用户打开「允许远程操作本 App」 |
+| `PERMISSION_DENIED` | 文件路径越出 App 沙箱，或没开「所有文件访问」 | 让用户在 App 设置页「权限与安全」里授权，或改用 App 私有目录 |
 
 ## 典型流程
 
