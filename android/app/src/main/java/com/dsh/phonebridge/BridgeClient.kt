@@ -37,11 +37,20 @@ class BridgeClient(
      * 于是电脑端换码/重启之后手机一直拿旧码握手 → `BAD_CODE`，token 一次都没用上。
      */
     private val preferCode: Boolean = false,
+    /**
+     * 手机签发给电脑的那一半凭据（32 字节）。
+     *
+     * 配对时还没有：这里现场生成一份，随 HELLO 递过去，成功后回调 [Listener.onDeviceKey]
+     * 让服务端存下来。用 token 重连时必须带同一份 —— 两侧凭据对不上就派生不出同一个会话密钥。
+     */
+    private val deviceKey: ByteArray? = null,
 ) {
     interface Listener {
         fun onState(state: String, detail: String)
         fun onCommand(id: Long, command: String, args: JSONObject)
         fun onToken(token: String)
+        /** 本次握手实际使用的 deviceKey（配对时是新生成的，重连时是原样带回来的）。 */
+        fun onDeviceKey(key: ByteArray) {}
     }
 
     private val thread = Thread({ run() }, "dsh-phone-bridge")
@@ -170,15 +179,19 @@ class BridgeClient(
         // 拿它握手只会在换码后换来一个 BAD_CODE。只有用户明确要用码（preferCode）
         // 或者压根没有 token 时才走码。
         val useCodeFirst = preferCode && !code.isNullOrEmpty()
-        if (useCodeFirst) {
-            hello.put("key", code)
-        } else if (!token.isNullOrEmpty()) {
-            hello.put("token", token)
-        } else if (!code.isNullOrEmpty()) {
-            hello.put("key", code)
+        val pairing = useCodeFirst || token.isNullOrEmpty()
+        if (pairing) {
+            hello.put("key", code ?: throw IllegalStateException("没有配对码，也没有已保存的登录凭证"))
         } else {
-            throw IllegalStateException("没有配对码，也没有已保存的登录凭证")
+            hello.put("token", token)
         }
+        // 双向凭据：每次配对都现场新签一份交给电脑；重连时必须沿用同一份。
+        val key = if (pairing) {
+            Proto.randomBytes(32)
+        } else {
+            deviceKey ?: throw IllegalStateException("本机凭据不完整（缺 deviceKey），请重新配对")
+        }
+        if (pairing) hello.put("deviceKey", Proto.b64u(key))
         writeRaw(out, Proto.frame(1, 0, 0, hello.toString().toByteArray(Charsets.UTF_8)))
 
         val challenge = parse(Proto.readFrame(input), decrypt = false)
@@ -201,6 +214,7 @@ class BridgeClient(
             nonceS = nonceS,
             peerPublicRaw = Proto.fromB64u(challenge.getString("serverPub")),
             keyPair = keyPair,
+            deviceKey = key,
         )
         val auth = JSONObject()
             .put("type", "AUTH")
@@ -218,6 +232,8 @@ class BridgeClient(
         if (!MessageDigest.isEqual(proofS, derived.proofS)) throw IllegalStateException("服务端身份校验失败")
         val issued = ok.optString("token")
         if (issued.isNotEmpty()) listener.onToken(issued)
+        // 握手成功才把这份 deviceKey 交给服务落盘：失败时不留半套凭据。
+        listener.onDeviceKey(key)
     }
 
     private fun readLoop(input: InputStream) {

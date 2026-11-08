@@ -69,8 +69,10 @@ last twenty minutes, so a long reasoning stretch after a tap keeps updating inst
 ## Protocol
 
 Binary frames (`DSHP`, 19-byte header, 8 MB cap). Handshake: `HELLO` → `CHALLENGE` → `AUTH` → `OK`, session key
-from ephemeral ECDH (prime256v1) + PBKDF2-stretched pairing code through HKDF, HMAC proofs both ways, then
-AES-256-GCM with the sequence number in the nonce. Only the SHA-256 of the pairing token is stored.
+from ephemeral ECDH (prime256v1) + PBKDF2-stretched pairing code **+ a 32-byte `deviceKey` the phone issues at
+pairing time**, all mixed through HKDF; HMAC proofs both ways, then AES-256-GCM with the sequence number in the
+nonce. Only the SHA-256 of the pairing token and the matching `deviceKey` are stored — both sides must hold their
+half or the handshake fails with `BAD_PROOF` (0.1.11+).
 
 ## Node version
 

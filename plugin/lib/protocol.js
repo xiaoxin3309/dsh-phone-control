@@ -83,15 +83,32 @@ export class FrameParser {
   }
 }
 
-export function deriveSession({ mode, secret, deviceId, salt, nonceC, nonceS, peerPub, ecdh }) {
+/**
+ * 派生握手密钥。
+ *
+ * 两个方向各持一份凭据，**缺一份就握不上**：
+ * - `secret`（配对码 / 电脑签发的 token）：手机持有的那一半；
+ * - `deviceKey`（手机签发给电脑的那一半）：配对时由手机生成，电脑把它随 token 一起存下来。
+ * 两者都进 HKDF 的 IKM，所以任何一方丢了/换了凭据，sessionKey 就对不上，proof 必然失败。
+ */
+export function deriveSession({ mode, secret, deviceId, salt, nonceC, nonceS, peerPub, ecdh, deviceKey }) {
+  if (!deviceKey) throw new Error('deviceKey required')
   const shared = ecdh.computeSecret(peerPub)
   const psk =
     mode === 'key'
       ? crypto.pbkdf2Sync(String(secret), fromB64u(salt), 200000, 32, 'sha256')
       : sha256(fromB64u(secret))
   const salt2 = sha256(Buffer.concat([fromB64u(salt), fromB64u(nonceC), fromB64u(nonceS)]))
+  const deviceKeyRaw = fromB64u(deviceKey)
+  if (deviceKeyRaw.length !== 32) throw new Error('bad deviceKey')
   const sessionKey = Buffer.from(
-    crypto.hkdfSync('sha256', Buffer.concat([shared, psk]), salt2, Buffer.from('dsh-phone-v1'), 32),
+    crypto.hkdfSync(
+      'sha256',
+      Buffer.concat([shared, psk, deviceKeyRaw]),
+      salt2,
+      Buffer.from('dsh-phone-v1'),
+      32,
+    ),
   )
   const transcript = ['dsh-phone-v1', deviceId, nonceC, nonceS, mode].join('|')
   return {

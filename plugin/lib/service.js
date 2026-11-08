@@ -28,10 +28,26 @@ const err = (code, message) => ({ type: 'ERR', ok: false, error: { code, message
 // 又不会让 token 文件无限增长。超出后丢最旧的（排在最前的永远是最新签发的）。
 const MAX_TOKENS = 16
 
-function dedupe(hashes) {
+/** 一条设备凭据：电脑签发的 token 哈希 + 手机签发给电脑的 deviceKey（各 32 字节）。 */
+function normalizeEntry(item) {
+  if (typeof item === 'string') {
+    // 老格式：只有一个哈希，没有 deviceKey —— 双向握手用不了，丢弃。
+    return null
+  }
+  if (!item || typeof item !== 'object') return null
+  if (typeof item.hash !== 'string' || item.hash.length === 0) return null
+  const hash = Buffer.from(item.hash, 'base64')
+  if (hash.length !== 32) return null
+  if (typeof item.deviceKey !== 'string' || item.deviceKey.length === 0) return null
+  const deviceKey = Buffer.from(item.deviceKey, 'base64')
+  if (deviceKey.length !== 32) return null
+  return { hash, deviceKey }
+}
+
+function dedupe(entries) {
   const out = []
-  for (const hash of hashes) {
-    if (!out.some((item) => safeEqual(item, hash))) out.push(hash)
+  for (const entry of entries) {
+    if (!out.some((item) => safeEqual(item.hash, entry.hash))) out.push(entry)
   }
   return out
 }
@@ -207,14 +223,25 @@ export class SpikeService {
     try {
       const raw = JSON.parse(await readFile(this.tokenFile, 'utf8'))
       const list = Array.isArray(raw?.tokens) ? raw.tokens : []
-      const hashes = list
-        .filter((item) => typeof item === 'string' && item.length > 0)
-        .map((item) => Buffer.from(item, 'base64'))
-      // 兼容老文件：tokenHash + previousTokenHash 平铺字段，读进来就当两条。
-      for (const legacy of [raw?.tokenHash, raw?.previousTokenHash]) {
-        if (typeof legacy === 'string' && legacy.length > 0) hashes.push(Buffer.from(legacy, 'base64'))
+      // 每条凭据是一个对象：{ hash, deviceKey }。
+      // hash = 电脑签发给手机的 token 的 SHA-256；deviceKey = 手机签发给电脑的那一半（原样存）。
+      // 老格式（纯字符串数组 / tokenHash 平铺字段）读进来只有 hash、没有 deviceKey ——
+      // 那种凭据已经不能完成双向握手，保留着也连不上，直接丢弃更诚实。
+      const entries = list
+        .map((item) => normalizeEntry(item))
+        .filter((entry) => entry !== null)
+      const legacy = []
+      for (const field of [raw?.tokenHash, raw?.previousTokenHash]) {
+        if (typeof field === 'string' && field.length > 0) {
+          legacy.push(Buffer.from(field, 'base64'))
+        }
       }
-      this.tokens = dedupe(hashes).slice(0, MAX_TOKENS)
+      this.tokens = dedupe(entries).slice(0, MAX_TOKENS)
+      if (legacy.length > 0) {
+        this.ctx?.logger?.warn?.(
+          `[phone-control] 丢弃 ${legacy.length} 条单向旧凭据（没有 deviceKey，无法完成双向校验），请重新配对一次`,
+        )
+      }
       if (this.tokens.length > 0) this.pairedAt = Number(raw?.pairedAt) || null
       tokenDebug(`load ok file=${this.tokenFile} tokens=${this.tokens.length} pairedAt=${this.pairedAt}`)
     } catch (error) {
@@ -231,7 +258,10 @@ export class SpikeService {
       await writeFile(
         this.tokenFile,
         JSON.stringify({
-          tokens: this.tokens.map((hash) => hash.toString('base64')),
+          tokens: this.tokens.map((entry) => ({
+            hash: entry.hash.toString('base64'),
+            deviceKey: entry.deviceKey ? entry.deviceKey.toString('base64') : null,
+          })),
           pairedAt: this.pairedAt,
         }),
         'utf8',
@@ -697,18 +727,22 @@ export class SpikeService {
 
     let mode
     let secret
+    let deviceKey = null
     if (typeof msg.token === 'string' && msg.token.length > 0) {
       const gotHash = sha256(fromB64u(msg.token))
-      const index = this.tokens.findIndex((hash) => safeEqual(hash, gotHash))
+      const index = this.tokens.findIndex((entry) => safeEqual(entry.hash, gotHash))
       tokenDebug(`hello token gotLen=${gotHash.length} known=${this.tokens.length} match=${index >= 0}`)
       if (index < 0) {
         this.sendJson(session, err('TOKEN_INVALID', '登录凭证已失效，请重新配对'), false)
         session.socket.end()
         return
       }
+      // 双向：电脑这边必须还留着这台手机当年签给我们的 deviceKey，否则派生不出同一个会话密钥。
+      deviceKey = this.tokens[index].deviceKey
       if (index > 0) {
         // 用过的旧 token 提到最前：它的含义是「这台设备当前在用的凭据」。
-        this.tokens = [gotHash, ...this.tokens.filter((hash) => !safeEqual(hash, gotHash))]
+        const entry = this.tokens[index]
+        this.tokens = [entry, ...this.tokens.filter((item) => !safeEqual(item.hash, gotHash))]
         void this.saveToken()
       }
       mode = 'token'
@@ -741,6 +775,17 @@ export class SpikeService {
       this.failedAttempts = 0
       mode = 'key'
       secret = msg.key
+      // 配对时由手机现场生成「它签给电脑的那一份」，随 HELLO 一起递过来（通道随后由它参与派生）。
+      deviceKey = typeof msg.deviceKey === 'string' ? msg.deviceKey.trim() : ''
+      if (!/^[A-Za-z0-9_-]{43}$/u.test(deviceKey) || fromB64u(deviceKey).length !== 32) {
+        this.sendJson(
+          session,
+          err('BAD_REQUEST', '配对请求缺少 deviceKey（手机端凭据），请升级手机 App'),
+          false,
+        )
+        session.socket.end()
+        return
+      }
     } else {
       this.sendJson(session, err('BAD_REQUEST', 'key or token required'), false)
       session.socket.end()
@@ -750,7 +795,7 @@ export class SpikeService {
     const salt = randomB64u(16)
     const nonceS = randomB64u(16)
     const ecdh = makeEcdh()
-    session.hello = { mode, secret, deviceId, nonceC }
+    session.hello = { mode, secret, deviceId, nonceC, deviceKey }
     session.salt = salt
     session.nonceS = nonceS
     session.ecdh = ecdh
@@ -793,6 +838,7 @@ export class SpikeService {
         nonceS: session.nonceS,
         peerPub: clientPub,
         ecdh: session.ecdh,
+        deviceKey: hello.deviceKey,
       })
     } catch {
       this.sendJson(session, err('BAD_REQUEST', 'ECDH failed'), false)
@@ -800,7 +846,12 @@ export class SpikeService {
       return
     }
     if (!safeEqual(fromB64u(msg.proofC), derived.proofC)) {
-      this.sendJson(session, err('BAD_PROOF', 'proof invalid'), false)
+      // 两侧凭据只要有一边对不上，就会走到这里：手机换了 token、或电脑这边丢了 deviceKey。
+      this.sendJson(
+        session,
+        err('BAD_PROOF', '双向凭据校验失败：这台手机和电脑端保存的凭据对不上，请重新配对'),
+        false,
+      )
       session.socket.end()
       return
     }
@@ -809,9 +860,10 @@ export class SpikeService {
     if (hello.mode === 'key') {
       tokenOut = randomB64u(32)
       const newHash = sha256(fromB64u(tokenOut))
-      // 新 token 排最前，旧的全部留着且不设过期时间：
+      // 新凭据排最前，旧的全部留着且不设过期时间：
       // 手机端换机、重装、进程被杀没来得及落盘时，旧凭据照样能连回来。
-      this.tokens = [newHash, ...this.tokens.filter((hash) => !safeEqual(hash, newHash))].slice(0, MAX_TOKENS)
+      const entry = { hash: newHash, deviceKey: fromB64u(hello.deviceKey) }
+      this.tokens = [entry, ...this.tokens.filter((item) => !safeEqual(item.hash, newHash))].slice(0, MAX_TOKENS)
       this.pairedAt = Date.now()
       void this.saveToken()
       this.refreshCode(true)

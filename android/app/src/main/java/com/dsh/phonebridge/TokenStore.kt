@@ -27,6 +27,7 @@ object TokenStore {
     private const val LEGACY_PLAIN = "bridge_token"
     private const val ENCRYPTED = "bridge_token_enc"
     private const val FALLBACK_PLAIN = "bridge_token_plain"
+    private const val DEVICE_KEY = "bridge_device_key"
     private const val KEYSTORE = "AndroidKeyStore"
     private const val ALIAS = "dsh_phone_bridge_token_v1"
     private const val GCM_TAG_BITS = 128
@@ -86,6 +87,31 @@ object TokenStore {
             .remove(ENCRYPTED)
             .remove(LEGACY_PLAIN)
             .remove(FALLBACK_PLAIN)
+            .remove(DEVICE_KEY)
+            .commit()
+    }
+
+    /**
+     * 手机签发给电脑的那一半凭据（32 字节，配对时生成）。
+     *
+     * 和 token 是两份独立凭据：token 证明「这台手机被这台电脑接受」，
+     * deviceKey 证明「这台电脑拿到的确实是这台手机签的那一份」。两份都在才连得上。
+     */
+    fun getDeviceKey(context: Context): ByteArray? {
+        val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(DEVICE_KEY, "").orEmpty()
+        if (raw.isEmpty()) return null
+        return try {
+            Base64.decode(raw, Base64.NO_WRAP).takeIf { it.size == 32 }
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    fun saveDeviceKey(context: Context, key: ByteArray) {
+        if (key.size != 32) return
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putString(DEVICE_KEY, Base64.encodeToString(key, Base64.NO_WRAP))
             .commit()
     }
 

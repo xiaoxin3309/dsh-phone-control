@@ -75,11 +75,13 @@ function openClient(port) {
 }
 
 // 完成一次 HELLO/CHALLENGE/AUTH/OK 握手；失败返回 {ok:false, code}
-function handshake(port, { key, token, deviceId = 'test-device-A' }) {
+// 双向凭据：配对时由「手机」现场生成 deviceKey 随 HELLO 递过去；重连必须带回同一份。
+function handshake(port, { key, token, deviceId = 'test-device-A', deviceKey: givenKey }) {
   return new Promise((resolve) => {
     const c = openClient(port)
     const ecdh = proto.makeEcdh()
     const nonceC = proto.randomB64u(16)
+    const deviceKey = givenKey ?? proto.randomB64u(32)
     let derived = null
     let done = false
     const finish = (v) => {
@@ -101,26 +103,38 @@ function handshake(port, { key, token, deviceId = 'test-device-A' }) {
         return
       }
       if (msg.type === 'CHALLENGE') {
-        derived = proto.deriveSession({
-          mode: msg.mode,
-          secret: token ?? key,
-          deviceId,
-          salt: msg.salt,
-          nonceC,
-          nonceS: msg.nonceS,
-          peerPub: proto.fromB64u(msg.serverPub),
-          ecdh,
-        })
+        try {
+          derived = proto.deriveSession({
+            mode: msg.mode,
+            secret: token ?? key,
+            deviceId,
+            salt: msg.salt,
+            nonceC,
+            nonceS: msg.nonceS,
+            peerPub: proto.fromB64u(msg.serverPub),
+            ecdh,
+            deviceKey,
+          })
+        } catch (error) {
+          c.socket.destroy()
+          finish({ ok: false, code: 'DERIVE', message: String(error.message) })
+          return
+        }
         c.sessionKey = derived.sessionKey
         c.send({ type: 'AUTH', clientPub: proto.b64u(ecdh.getPublicKey()), proofC: proto.b64u(derived.proofC) })
         return
       }
       if (msg.type === 'OK') {
         const proofOk = proto.safeEqual(proto.fromB64u(msg.proofS), derived.proofS)
-        finish({ ok: true, client: c, token: msg.token ?? null, proofOk, expiresAt: msg.expiresAt })
+        finish({ ok: true, client: c, token: msg.token ?? null, proofOk, expiresAt: msg.expiresAt, deviceKey })
       }
     }
-    c.send({ type: 'HELLO', deviceId, nonceC, ...(token ? { token } : { key }) })
+    c.send({
+      type: 'HELLO',
+      deviceId,
+      nonceC,
+      ...(token ? { token } : { key, deviceKey }),
+    })
   })
 }
 
@@ -199,7 +213,7 @@ check('伪造 token 被拒（TOKEN_INVALID）', !badToken.ok && badToken.code ==
 // 9) 断开后重连：同一 token 直接认证，无需重新配对
 paired.client.socket.destroy()
 await sleep(150)
-const reconnected = await handshake(PORT, { token: token1, deviceId: 'test-device-B' })
+const reconnected = await handshake(PORT, { token: token1, deviceId: 'test-device-B', deviceKey: paired.deviceKey })
 check('断线后用同一 token 重连成功（token 模式，不下发新 token）', reconnected.ok === true && reconnected.token === null, `tokenOut=${reconnected.token}`)
 check('重连后 status.connected=true', svc.status().connected === true)
 
@@ -208,14 +222,35 @@ const paired2 = await handshake(PORT, { key: CODE })
 const token2 = paired2.token
 check('再次配对拿新 token', paired2.ok === true && typeof token2 === 'string' && token2 !== token1)
 check('新旧 token 都保留（永不过期）', svc.tokens.length === 2, `tokens=${svc.tokens.length}`)
+check('每次配对都签一份新的 deviceKey', paired2.deviceKey !== paired.deviceKey, 'dk2 != dk1')
+
+// 10b) 双向：token 对、deviceKey 是另一台手机签的 → 密钥不同 → BAD_PROOF
+const mismatched = await handshake(PORT, { token: token1, deviceId: 'test-device-X', deviceKey: paired2.deviceKey })
+check('用了别人的 deviceKey 会被拒（BAD_PROOF）', !mismatched.ok && mismatched.code === 'BAD_PROOF', `${mismatched.code} / ${mismatched.message}`)
+check('BAD_PROOF 文案点明「双向凭据校验失败」', /双向凭据校验失败/.test(mismatched.message ?? ''), mismatched.message)
+
+// 10c) 配对时不带 deviceKey → 直接拒（老客户端不允许再建立单向凭据）
+const noKey = await new Promise((resolve) => {
+  const c = openClient(PORT)
+  const timer = setTimeout(() => { c.socket.destroy(); resolve({ code: 'TIMEOUT' }) }, 3000)
+  c.onmessage = (msg) => {
+    if (msg.type === 'ERR') {
+      clearTimeout(timer)
+      c.socket.destroy()
+      resolve({ code: msg.error?.code, message: msg.error?.message })
+    }
+  }
+  c.send({ type: 'HELLO', deviceId: 'test-device-old', nonceC: proto.randomB64u(16), key: CODE })
+})
+check('配对缺少 deviceKey 被拒（BAD_REQUEST）', noKey.code === 'BAD_REQUEST' && /deviceKey/.test(noKey.message ?? ''), `${noKey.code} / ${noKey.message}`)
 
 // 11) 旧 token 随时可连，且会被提到最前（= 当前在用凭据）
 reconnected.client.socket.destroy()
 await sleep(100)
-const oldTokenConn = await handshake(PORT, { token: token1, deviceId: 'test-device-C' })
+const oldTokenConn = await handshake(PORT, { token: token1, deviceId: 'test-device-C', deviceKey: paired.deviceKey })
 check('旧 token 仍可连接（不设过期）', oldTokenConn.ok === true)
 check('旧 token 连接后提升为当前 token', svc.tokens.length === 2
-  && svc.tokens[0].toString('base64') === proto.sha256(proto.fromB64u(token1)).toString('base64'))
+  && svc.tokens[0].hash.toString('base64') === proto.sha256(proto.fromB64u(token1)).toString('base64'))
 
 // 12) PC 主动断开 → 手机侧 socket 收到关闭，重连可恢复
 const closedFlag = { closed: false }
@@ -225,7 +260,7 @@ oldTokenConn.client.onclose = () => {
 const killed = svc.disconnectAll()
 await sleep(300)
 check('PC 端 disconnectAll 断开就绪会话', killed >= 1 && closedFlag.closed === true, `killed=${killed} closed=${closedFlag.closed}`)
-const afterKill = await handshake(PORT, { token: token1, deviceId: 'test-device-D' })
+const afterKill = await handshake(PORT, { token: token1, deviceId: 'test-device-D', deviceKey: paired.deviceKey })
 check('被断开后手机可立即重连', afterKill.ok === true)
 
 // 13) 持久化：新实例从 token 文件恢复，token 仍有效（插件重载场景）
@@ -234,31 +269,35 @@ await sleep(300)
 const tokenFile = path.join(tmpProfile, 'phone-bridge-token.json')
 const saved = JSON.parse(readFileSync(tokenFile, 'utf8'))
 check('token 文件已写入且不含明文 token', Array.isArray(saved.tokens) && saved.tokens.length >= 1
-  && saved.tokens.every((item) => typeof item === 'string' && item.length > 0)
+  && saved.tokens.every((item) => typeof item?.hash === 'string' && item.hash.length > 0
+    && typeof item?.deviceKey === 'string' && item.deviceKey.length > 0)
   && !('token' in saved) && !('previousTokenHash' in saved), `tokens=${saved.tokens?.length}`)
 const svc2 = makeService()
 await svc2.start()
 check('新实例加载 token 成功（paired=true）', svc2.status().paired === true)
-const afterReload = await handshake(PORT, { token: token1, deviceId: 'test-device-E' })
+const afterReload = await handshake(PORT, { token: token1, deviceId: 'test-device-E', deviceKey: paired.deviceKey })
 check('插件重载后旧 token 仍可直接重连', afterReload.ok === true, `${afterReload.code ?? ''} ${afterReload.message ?? ''}`)
 afterReload.client?.socket.destroy()
 svc2.dispose()
 await sleep(200)
 
-// 14) 老格式 token 文件（tokenHash + previousTokenHash 平铺）自动迁移成 tokens 数组
+// 14) 老格式 token 文件（只有哈希、没有 deviceKey）—— 单向凭据无法完成双向握手，启动时丢弃
 const legacyHash = (raw) => proto.sha256(proto.fromB64u(raw)).toString('base64')
 writeFileSync(tokenFile, JSON.stringify({
   tokenHash: legacyHash(token1),
   previousTokenHash: legacyHash(token2),
-  previousTokenExpiresAt: 0, // 已过期也别丢：迁移后两条都永不过期
+  previousTokenExpiresAt: 0,
   pairedAt: Date.now(),
 }))
 const svc3 = makeService()
 await svc3.start()
-check('老格式 token 文件迁移为 2 条', svc3.status().paired === true && svc3.tokens.length === 2, `tokens=${svc3.tokens.length}`)
-const legacyConn = await handshake(PORT, { token: token2, deviceId: 'test-device-F' })
-check('迁移后「已过期」的旧 token 仍可连接', legacyConn.ok === true, `${legacyConn.code ?? ''} ${legacyConn.message ?? ''}`)
-legacyConn.client?.socket.destroy()
+check('单向旧凭据被丢弃（paired=false / tokens=0）', svc3.status().paired === false && svc3.tokens.length === 0, `tokens=${svc3.tokens.length}`)
+const legacyConn = await handshake(PORT, { token: token2, deviceId: 'test-device-F', deviceKey: paired2.deviceKey })
+check('单向旧 token 连不上（TOKEN_INVALID，提示重新配对）', !legacyConn.ok && legacyConn.code === 'TOKEN_INVALID'
+  && /重新配对/.test(legacyConn.message ?? ''), `${legacyConn.code} / ${legacyConn.message}`)
+const repaired = await handshake(PORT, { key: svc3.status().pairingCode })
+check('重新配对一次即可恢复（双向凭据）', repaired.ok === true, `${repaired.code ?? ''} ${repaired.message ?? ''}`)
+repaired.client?.socket.destroy()
 
 // 15) 撤销所有凭证：旧 token 立刻作废，token 文件被删
 const forgot = await svc3.forgetTokens()

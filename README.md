@@ -222,9 +222,15 @@ phone  ── WebSocket ──►  computer (DSH plugin, port 8788 by default)
 
 - Framing: 19-byte header (`DSHP`, version, type, flags, 64-bit sequence, payload length), 8 MB cap.
 - Handshake: `HELLO` → `CHALLENGE` → `AUTH` → `OK`. The session key is derived from an ephemeral ECDH
-  exchange (prime256v1) combined with a PBKDF2-stretched pairing code (or a pre-shared secret) through HKDF;
-  both sides prove possession with HMAC over a transcript. Steady-state traffic is AES-256-GCM with the
-  sequence number in the nonce.
+  exchange (prime256v1), a PBKDF2-stretched pairing code (or a pre-shared secret), **and a mutual
+  credential** through HKDF; both sides prove possession with HMAC over a transcript. Steady-state traffic
+  is AES-256-GCM with the sequence number in the nonce.
+- Mutual credentials (0.0.42+): while pairing, the phone generates a 32-byte `deviceKey` and hands it to
+  the computer in `HELLO`; the computer stores it next to the token hash in
+  `<profile>/phone-bridge-token.json`. On every reconnect the phone must present the same `deviceKey`
+  *and* the computer must still hold the matching half. Both halves feed the HKDF IKM, so losing either
+  side — or pairing with a different phone — makes the handshake fail (`BAD_PROOF`, "双向凭据校验失败 …
+  re-pair"). Pairing once restores it.
 - Pairing issues a random 256-bit token; only its SHA-256 hash is stored (`<profile>/phone-bridge-token.json`).
   Every token ever issued stays valid **indefinitely** (the newest 16 are kept), so a phone that slept
   overnight, was force-stopped, or got reinstalled can still reconnect without a fresh pairing code.
@@ -232,6 +238,8 @@ phone  ── WebSocket ──►  computer (DSH plugin, port 8788 by default)
   private prefs, written with `commit()`; if the Keystore key is ever replaced the app falls back to the
   copy instead of wiping the credential (0.0.41+). A rejected token no longer deletes the local copy
   either — only the "clear saved credential" button does.
+- **Upgrading**: token files written by 0.0.41 and earlier carry no `deviceKey` (they are one-sided). 0.0.42
+  drops such entries, so one re-pair is required after upgrading; mutual credentials never expire either.
 - The pairing code expires after 5 minutes, rotates after every successful pairing, and 5 wrong attempts
   lock pairing for 5 minutes. A forced refresh lifts the lock.
 - The HTTP settings API only answers same-origin or loopback requests.

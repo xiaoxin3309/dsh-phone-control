@@ -210,11 +210,17 @@ App 设置页里有「悬浮 HUD」开关，**默认关闭**；第一次打开�
 ```
 
 - 帧格式：19 字节头（`DSHP`、版本、类型、标志、64 位序号、负载长度），单帧上限 8 MB。
-- 握手：`HELLO` → `CHALLENGE` → `AUTH` → `OK`。会话密钥由临时 ECDH（prime256v1）与会话口令
-  （配对码经 PBKDF2 拉伸，或预共享密钥）经 HKDF 派生，双方用 HMAC 互证；之后全部流量用 AES-256-GCM，
-  序号写进 nonce。
+- 握手：`HELLO` → `CHALLENGE` → `AUTH` → `OK`。会话密钥由临时 ECDH（prime256v1）、会话口令
+  （配对码经 PBKDF2 拉伸，或预共享密钥）与**双向凭据**经 HKDF 派生，双方用 HMAC 互证；之后全部流量用
+  AES-256-GCM，序号写进 nonce。
+- 双向凭据（0.0.42 起）：配对时手机现场生成 32 字节 `deviceKey` 随 `HELLO` 递给电脑，电脑把它和
+  token 哈希一起存进 `<profile>/phone-bridge-token.json`；之后每次重连，手机必须带着同一份 `deviceKey`，
+  电脑必须还留着匹配的那一份。两份凭据都进 HKDF 的 IKM，**任何一侧丢了或对不上，握手必然失败**
+  （`BAD_PROOF`「双向凭据校验失败…请重新配对」）。重新配对一次即可恢复。
 - 配对成功签发 256 位随机 token，服务端只存它的 SHA-256（`<profile>/phone-bridge-token.json`）。
   已签发的 token **永不过期**（保留最近 16 条），治「睡一觉 / 被杀进程 / 覆盖安装后再连就 TOKEN_INVALID」。
+- **升级注意**：0.0.41 及更早版本的 token 文件里没有 `deviceKey`（单向凭据）。0.0.42 读到这种条目会丢弃，
+  所以升级后需要重新配对一次；配对之后的双向凭据同样永不过期。
 - 手机上这份 token 用 Android Keystore 加密保存，**同时**在应用私有 prefs 里留一份明文兜底，并用
   `commit()` 同步落盘：Keystore 密钥被系统换掉（换签名重装、系统升级、部分 ROM 清理安全存储）时退回明文，
   不再把凭据删掉。服务端说 `TOKEN_INVALID` 也**不会**再删本地那份（v0.0.41 起），只有用户自己点

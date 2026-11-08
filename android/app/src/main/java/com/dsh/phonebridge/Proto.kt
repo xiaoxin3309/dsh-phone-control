@@ -127,11 +127,14 @@ object Proto {
         nonceS: String,
         peerPublicRaw: ByteArray,
         keyPair: KeyPair,
+        deviceKey: ByteArray,
     ): Session {
+        require(deviceKey.size == 32) { "bad deviceKey" }
         val shared = sharedSecret(keyPair, peerPublicRaw)
         val psk = if (mode == "key") pbkdf2(secret, salt) else sha256(fromB64u(secret))
         val salt2 = sha256(salt + fromB64u(nonceC) + fromB64u(nonceS))
-        val sessionKey = hkdf(shared + psk, salt2, "dsh-phone-v1".toByteArray(Charsets.UTF_8), 32)
+        // deviceKey（手机签给电脑的那一半）也进 IKM：任何一侧缺这份凭据，密钥就对不上。
+        val sessionKey = hkdf(shared + psk + deviceKey, salt2, "dsh-phone-v1".toByteArray(Charsets.UTF_8), 32)
         val transcript = listOf("dsh-phone-v1", deviceId, nonceC, nonceS, mode).joinToString("|")
         return Session(
             sessionKey = sessionKey,

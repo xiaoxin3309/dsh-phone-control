@@ -145,6 +145,7 @@ class PhoneBridgeService : Service(), BridgeClient.Listener {
             listener = this,
             wsUrl = wsUrl.ifEmpty { null },
             preferCode = preferCode,
+            deviceKey = TokenStore.getDeviceKey(this),
         )
         client = bridge
         bridge.start()
@@ -277,6 +278,11 @@ class PhoneBridgeService : Service(), BridgeClient.Listener {
         // 「保持登录」只决定下次要不要自动连，不该决定「要不要保存」。
         // 否则用户拿码配对一次、我们又把码清空，重启后就会两头都空。
         TokenStore.save(this, token)
+    }
+
+    override fun onDeviceKey(key: ByteArray) {
+        // 配对时这份是新的，重连时是原样带回来的同一份；都落盘，保证下次还能对上。
+        TokenStore.saveDeviceKey(this, key)
     }
 
     override fun onCommand(id: Long, command: String, args: JSONObject) {
