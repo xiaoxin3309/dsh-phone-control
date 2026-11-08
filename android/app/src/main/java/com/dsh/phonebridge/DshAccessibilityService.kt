@@ -164,13 +164,13 @@ class DshAccessibilityService : AccessibilityService() {
     fun currentPackage(): String? = rootInActiveWindow?.packageName?.toString()
 
     /**
-     * 当前前台包名。
+     * 当前前台包名，**只读事件缓存，不碰 binder**。
      *
-     * 优先读根节点：浮层是 NOT_FOCUSABLE 的，不会成为活动窗口，所以根节点始终是
-     * 「真正在前台的那个应用」，比事件缓存可靠（缓存可能被我们自己的浮层窗口事件污染）。
-     * 读不到根节点时再退回缓存。
+     * 不要改成先读 `rootInActiveWindow`：那是同步的跨进程调用，在主线程上最长能卡 5 秒。
+     * 悬浮 HUD 每 800ms 巡检一次，这么干会把主线程拖死，最后被系统当 ANR 杀掉（实测过：
+     * 浮层消失、截图请求超时、App 掉线）。
      */
-    fun foreground(): String? = currentPackage() ?: foregroundPackage
+    fun foreground(): String? = foregroundPackage
 
     // ---- 节点树（比截图便宜一到两个数量级） ----
 

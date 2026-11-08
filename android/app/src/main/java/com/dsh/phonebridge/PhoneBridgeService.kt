@@ -58,7 +58,10 @@ class PhoneBridgeService : Service(), BridgeClient.Listener {
         super.onCreate()
         createChannel()
         registerNetworkCallback()
-        hud = HudOverlay(this) { DshAccessibilityService.instance?.foreground() }
+        AppPresence.attach(application)
+        // 浮层只在「手机桥自己的界面不在前台」时露脸。判断走 Activity 生命周期，
+        // 不去读无障碍的根节点：那是同步 binder，主线程上会卡住（见 AppPresence 注释）。
+        hud = HudOverlay(this) { if (AppPresence.isForeground) packageName else null }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -898,6 +901,8 @@ class PhoneBridgeService : Service(), BridgeClient.Listener {
         val allow = getSharedPreferences(PREFS, MODE_PRIVATE)
             .getBoolean(KEY_ALLOW_SELF_CONTROL, false)
         if (allow) return false
+        // 自己的 Activity 在前台 —— 这个判据不依赖无障碍事件，冷启动时也准。
+        if (AppPresence.isForeground) return true
         val foreground = accessibility?.foreground() ?: return false
         return foreground == packageName
     }
