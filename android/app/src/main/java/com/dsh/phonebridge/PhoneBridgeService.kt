@@ -180,13 +180,15 @@ class PhoneBridgeService : Service(), BridgeClient.Listener {
             .any { detail.contains(it) }
         if (fatal) {
             // 认证失败先别判死刑：手上还有另一份凭据就换它再试一次。
-            // 老码撞 BAD_CODE → 改用 token；token 失效 → 清掉再改用码。
+            // 老码撞 BAD_CODE → 改用 token；token 失效 → 换成码再试。
             // 只翻转一次，免得两份凭据互相踢成死循环。
             if (!credentialFlipped && !detail.contains("LOCKED")) {
                 credentialFlipped = true
                 if (detail.contains("TOKEN_INVALID")) {
+                    // 只在本轮内存里放弃 token，**不要删本地保存的那份**：
+                    // 删掉之后用户就只能重配对，而「服务端暂不认」常常只是一时的
+                    // （换机器、token 文件没带过来、重启读错盘符）。留着，下一轮再试。
                     lastToken = ""
-                    TokenStore.clear(this)
                 }
                 retryScheduled = true
                 val flip = !lastPreferCode
@@ -209,8 +211,8 @@ class PhoneBridgeService : Service(), BridgeClient.Listener {
             }
             fatalStop = true
             if (detail.contains("TOKEN_INVALID")) {
+                // 同上：本地那份留着，别把用户唯一的凭据删了。
                 lastToken = ""
-                TokenStore.clear(this)
             }
             return
         }

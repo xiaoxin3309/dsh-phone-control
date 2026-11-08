@@ -228,6 +228,10 @@ phone  ── WebSocket ──►  computer (DSH plugin, port 8788 by default)
 - Pairing issues a random 256-bit token; only its SHA-256 hash is stored (`<profile>/phone-bridge-token.json`).
   Every token ever issued stays valid **indefinitely** (the newest 16 are kept), so a phone that slept
   overnight, was force-stopped, or got reinstalled can still reconnect without a fresh pairing code.
+  On the phone the token is Keystore-encrypted **and** mirrored as a plaintext copy inside the app's
+  private prefs, written with `commit()`; if the Keystore key is ever replaced the app falls back to the
+  copy instead of wiping the credential (0.0.41+). A rejected token no longer deletes the local copy
+  either — only the "clear saved credential" button does.
 - The pairing code expires after 5 minutes, rotates after every successful pairing, and 5 wrong attempts
   lock pairing for 5 minutes. A forced refresh lifts the lock.
 - The HTTP settings API only answers same-origin or loopback requests.
