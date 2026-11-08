@@ -180,5 +180,56 @@ function ev(type, data) {
   hud.dispose()
 }
 
+// 11) 流式思考：reasoning-delta 推一行，之后原地替换（不刷屏）
+{
+  const service = fakeService()
+  const hud = createHud({ service })
+  const agent = { session }
+  hud.observe(session, ev('tool/call', { name: 'phone_ui_dump', arguments: {} }))
+  await sleep(340)
+  hud.stream(agent, { type: 'start', attemptId: 'a1' })
+  hud.stream(agent, { type: 'chunk', chunk: { type: 'reasoning-delta', text: '先看通知栏' } })
+  await sleep(420)
+  hud.stream(agent, { type: 'chunk', chunk: { type: 'reasoning-delta', text: '，再点齿轮' } })
+  await sleep(420)
+  const thinkPushes = service.calls
+    .filter((c) => c.method === 'hud_push' && c.payload.lines.some((l) => l.kind === 'think'))
+  check('reasoning-delta 推 think 行', thinkPushes.length >= 2, `pushes=${thinkPushes.length}`)
+  check('第一条思考行是追加', thinkPushes[0]?.payload?.replaceLast === false, JSON.stringify(thinkPushes[0]?.payload))
+  check('后续思考行原地替换', thinkPushes[1]?.payload?.replaceLast === true, JSON.stringify(thinkPushes[1]?.payload))
+  const last = thinkPushes.at(-1)?.payload?.lines?.[0]?.text ?? ''
+  check('思考行是尾巴（含最新增量）', last.includes('再点齿轮'), JSON.stringify(last))
+  hud.dispose()
+}
+
+// 12) 没控制过手机的会话，流式思考不推
+{
+  const service = fakeService()
+  const hud = createHud({ service })
+  hud.stream({ session: { id: 'sess-other' } }, { type: 'chunk', chunk: { type: 'reasoning-delta', text: '无关会话' } })
+  await sleep(420)
+  check('陌生会话的思考不推', service.calls.every((c) => c.method !== 'hud_push'), JSON.stringify(service.calls))
+  hud.dispose()
+}
+
+// 13) 有流式思考时不再补「还在想」心跳
+{
+  const service = fakeService()
+  const hud = createHud({ service })
+  const agent = { session }
+  hud.observe(session, ev('tool/call', { name: 'phone_ui_dump', arguments: {} }))
+  await sleep(340)
+  hud.stream(agent, { type: 'chunk', chunk: { type: 'reasoning-delta', text: '正在看屏幕' } })
+  await sleep(420)
+  hud.observe(session, ev('assistant/message', { content: [{ type: 'text', text: '想一下' }] }))
+  await sleep(420)
+  const hearts = service.calls
+    .filter((c) => c.method === 'hud_push')
+    .flatMap((c) => c.payload.lines)
+    .filter((l) => l.kind === 'think' && l.text === '还在想')
+  check('流式思考期间不补心跳', hearts.length === 0, JSON.stringify(hearts))
+  hud.dispose()
+}
+
 console.log(`\n${fail === 0 ? 'PASS' : 'FAIL'} ${pass} / ${fail}`)
 process.exitCode = fail === 0 ? 0 : 1

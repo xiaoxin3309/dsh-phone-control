@@ -25,6 +25,12 @@ const HOLD_TTL_MS = 0
 const DONE_TTL_MS = 5_000
 /** 思考心跳的最小间隔：模型连续出几条 assistant 消息也只推一行。 */
 const THINK_GAP_MS = 2_500
+/** 流式思考的推送节奏：比动作慢一点，免得手机端一直在重排。 */
+const STREAM_GAP_MS = 400
+/** 有流式思考进来之后的这么久里，不再补「还在想」心跳。 */
+const STREAM_HOLD_MS = 5_000
+/** 只留思考的尾巴：浮层一行放不下，看的是「他现在在想哪一步」。 */
+const MAX_THINK = 80
 
 export const KIND_ACT = 'act'
 export const KIND_THINK = 'think'
@@ -58,6 +64,13 @@ function collapse(text, max) {
   const flat = String(text ?? '').replace(/\s+/gu, ' ').trim()
   if (flat.length <= max) return flat
   return `${flat.slice(0, Math.max(0, max - 1))}…`
+}
+
+/** 思考要看的是「尾巴」：最后一句说到哪儿了，而不是从头念。 */
+function tailOf(text, max) {
+  const flat = String(text ?? '').replace(/\s+/gu, ' ').trim()
+  if (flat.length <= max) return flat
+  return `…${flat.slice(-(max - 1))}`
 }
 
 function pack(value) {
@@ -115,17 +128,28 @@ function describe(name, args) {
 export function createHud({ service, logger }) {
   const active = new Map()
   const thinkAt = new Map()
+  /** 会话 → 本轮流式思考累积的尾巴（只留最后 MAX_THINK 字）。 */
+  const streamText = new Map()
+  /** 会话 → 最近一次收到流式思考的时间，用来抑制「还在想」心跳。 */
+  const streamAt = new Map()
+  /** 会话 → 最近一次真的把思考行推上去的时间（节流用）。 */
+  const streamPushAt = new Map()
   const queue = []
   let timer = null
   let lastSent = 0
   let mutedUntil = 0
   let disposed = false
+  /** 上一条真正推上去的行的类型：思考行连着来时用 replaceLast 原地更新，不刷屏。 */
+  let lastKind = ''
 
   function trim() {
     while (active.size > MAX_TRACKED) {
       const oldest = active.keys().next().value
       active.delete(oldest)
       thinkAt.delete(oldest)
+      streamText.delete(oldest)
+      streamAt.delete(oldest)
+      streamPushAt.delete(oldest)
     }
   }
 
@@ -138,10 +162,10 @@ export function createHud({ service, logger }) {
     return at === undefined ? 0 : at
   }
 
-  function enqueue(kind, text) {
+  function enqueue(kind, text, replaceLast = false) {
     if (disposed || typeof text !== 'string' || text.length === 0) return
     if (queue.length >= MAX_QUEUE) queue.shift()
-    queue.push({ kind, text })
+    queue.push({ kind, text, replaceLast })
     schedule()
   }
 
@@ -160,8 +184,11 @@ export function createHud({ service, logger }) {
     lastSent = Date.now()
     // 中途的行挂住不淡出；只有「本轮结束」那一批带停留时间。
     const ttlMs = lines.some((line) => line.kind === KIND_DONE) ? DONE_TTL_MS : HOLD_TTL_MS
+    // 单独一条思考行、且屏幕上最后一条也是思考行：让手机端原地替换，而不是又堆一行。
+    const replaceLast = lines.length === 1 && lines[0].replaceLast === true
+    lastKind = lines[lines.length - 1].kind
     void service
-      .request('hud_push', { lines, ttlMs }, 4000)
+      .request('hud_push', { lines: lines.map(({ kind, text }) => ({ kind, text })), ttlMs, replaceLast }, 4000)
       .then((result) => {
         const reason = typeof result?.reason === 'string' ? result.reason : ''
         if (reason === 'disabled' || reason === 'permission') mutedUntil = Date.now() + MUTE_MS
@@ -198,7 +225,9 @@ export function createHud({ service, logger }) {
         }
         case 'assistant/message': {
           // 思考心跳：不读正文，只表示「模型还在推进」，避免一整轮只有动作行。
+          // 有流式思考正在来时不必再补一句，否则两行说的是同一件事。
           if (Date.now() - newer(id) > ACTIVE_MS) return
+          if (Date.now() - (streamAt.get(id) ?? 0) < STREAM_HOLD_MS) return
           const now = Date.now()
           if (now - (thinkAt.get(id) ?? 0) < THINK_GAP_MS) return
           thinkAt.set(id, now)
@@ -218,8 +247,52 @@ export function createHud({ service, logger }) {
     }
   }
 
+  /**
+   * `agent/assistant-stream`：模型这一轮的**实时** token。
+   *
+   * 只认 `chunk.type === 'reasoning-delta'`（思考增量），正文一律不看。浮层只有 5 行，
+   * 所以思考行是「原地更新」的：第一条追加，之后同一个会话再来就用 replaceLast 覆写它。
+   */
+  function stream(agent, frame) {
+    try {
+      if (disposed || frame === null || frame === undefined) return
+      const id = typeof agent?.session?.id === 'string' ? agent.session.id : ''
+      if (id.length === 0) return
+      if (frame.type === 'start') {
+        streamText.set(id, '')
+        return
+      }
+      if (frame.type === 'end') {
+        streamText.delete(id)
+        return
+      }
+      if (frame.type !== 'chunk') return
+      const chunk = frame.chunk
+      if (chunk?.type !== 'reasoning-delta' || typeof chunk.text !== 'string') return
+      // 没在操控手机的会话不往手机上推
+      const now = Date.now()
+      if (now - newer(id) > ACTIVE_MS) return
+      if (muted()) return
+      const text = `${streamText.get(id) ?? ''}${chunk.text}`.slice(-MAX_THINK)
+      streamText.set(id, text)
+      streamAt.set(id, now)
+      // 节流按「上一次真的推进去的时间」算，而不是 flush 时间：否则一个 300ms 的
+      // 排队窗口会把紧接着的几个增量全吞掉。
+      if (timer !== null || now - (streamPushAt.get(id) ?? 0) < STREAM_GAP_MS) return
+      streamPushAt.set(id, now)
+      const tail = tailOf(text, MAX_LINE)
+      if (tail.length === 0) return
+      enqueue(KIND_THINK, tail, lastKind === KIND_THINK)
+    } catch (error) {
+      logger?.warn?.(`[phone-control] hud stream failed: ${error?.message ?? String(error)}`)
+    }
+  }
+
   async function clear() {
     queue.length = 0
+    streamText.clear()
+    streamAt.clear()
+    lastKind = ''
     try {
       await service.request('hud_clear', {}, 4000)
     } catch {
@@ -239,11 +312,13 @@ export function createHud({ service, logger }) {
   function dispose() {
     disposed = true
     queue.length = 0
+    streamText.clear()
+    streamAt.clear()
     if (timer !== null) {
       clearTimeout(timer)
       timer = null
     }
   }
 
-  return { observe, clear, state, dispose }
+  return { observe, stream, clear, state, dispose }
 }

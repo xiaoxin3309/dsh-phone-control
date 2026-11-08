@@ -119,10 +119,13 @@ class HudOverlay(
      * 推一批新行。返回给电脑端的结果里带 reason，方便排查「为什么没显示」：
      * disabled / permission / no_service / shown。
      */
-    fun push(incoming: List<String>, ttlMs: Long): JSONObject {
+    fun push(incoming: List<String>, ttlMs: Long, replaceLast: Boolean = false): JSONObject {
         if (!enabled()) return result(false, "disabled", 0)
         if (!permitted()) return result(false, "permission", 0)
         if (incoming.isEmpty()) return result(false, "empty", lines.size)
+
+        // 思考行是「一面镜子」：同一个会话连着来，就覆盖最后一行，不刷屏。
+        if (replaceLast && lines.isNotEmpty()) lines.removeLast()
 
         for (raw in incoming) {
             val text = collapse(raw)
@@ -164,13 +167,16 @@ class HudOverlay(
         hiddenDepth += 1
         cancelFade()
         detach()
-        // 窗口是 removeViewImmediate 摘的，但合成器可能还留着上一帧；
-        // 等一帧再抓，避免截到残影。
-        Choreographer.getInstance().postFrameCallback {
-            try {
-                onReady()
-            } catch (error: Throwable) {
-                Log.w(TAG, "capture callback failed: ${error.message}")
+        // 只等一帧时，合成器仍可能用「上一帧」的合成结果去截，图里还留着浮层；
+        // 连等两帧（第二轮回调时这一帧已经提交到 SurfaceFlinger）才稳。
+        val choreographer = Choreographer.getInstance()
+        choreographer.postFrameCallback {
+            choreographer.postFrameCallback {
+                try {
+                    onReady()
+                } catch (error: Throwable) {
+                    Log.w(TAG, "capture callback failed: ${error.message}")
+                }
             }
         }
     }

@@ -515,7 +515,14 @@ class PhoneBridgeService : Service(), BridgeClient.Listener {
                         incoming.add(prefix + text)
                     }
                 }
-                reply(id, overlay.push(incoming, args.optLong("ttlMs", HudOverlay.IDLE_MS)))
+                reply(
+                    id,
+                    overlay.push(
+                        incoming,
+                        args.optLong("ttlMs", HudOverlay.IDLE_MS),
+                        args.optBoolean("replaceLast", false),
+                    ),
+                )
             }
 
             "hud_state" -> {

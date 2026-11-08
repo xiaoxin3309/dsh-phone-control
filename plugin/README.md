@@ -58,11 +58,12 @@ Pairing code with countdown and a *New code* button, a live QR code of the pairi
 on the DSH web port), listening address/port (`0` = auto), bind address, paired devices, open sessions, failed
 attempts, and a *Disconnect* button. Port changes rebind immediately and persist to `<profile>/phone-bridge.json`.
 
-App v0.0.36 also has a **floating HUD**: off by default, and when on it narrates the agent's actions in a
-translucent strip at the top of the screen (actions plus a "still thinking" heartbeat, never the answer text; five
-lines, kept for the whole turn and faded five seconds after the turn ends). It hides itself while the bridge app is
-in the foreground. Before a screenshot or node dump the overlay is detached for one frame, so the agent never sees
-its own HUD — your manual screenshots do. The plugin pushes to it from sessions that recently called a `phone_*` tool.
+App v0.0.37 also has a **floating HUD**: off by default, and when on it narrates the agent's actions in a
+translucent strip at the top of the screen (actions plus a live thinking line streamed from `agent/assistant-stream`,
+never the answer text; five lines, kept for the whole turn and faded five seconds after the turn ends). It hides
+itself while the bridge app is in the foreground. Before a screenshot or node dump the overlay is detached and two
+frames are awaited — one frame is not enough, the compositor still has the previous frame — so the agent never sees
+its own HUD. Your manual screenshots do. The plugin pushes to it from sessions that recently called a `phone_*` tool.
 
 ## Protocol
 

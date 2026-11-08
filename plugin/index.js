@@ -568,6 +568,18 @@ export function apply(ctx, config) {
     'dsh-phone-control: session notifications',
   )
 
+  // 流式 token（进程内的 assistant-stream）：只取思考增量，喂给 HUD 那一行原地更新。
+  // 这是唯一能拿到「还没落盘」的文本的入口，session/event 里只有落地后的事件。
+  ctx.effect(
+    () =>
+      ctx.on(
+        'agent/assistant-stream',
+        ({ agent, frame }) => hud.stream(agent, frame),
+        { global: true },
+      ),
+    'dsh-phone-control: hud live reasoning',
+  )
+
   ctx.skills.registerProvider(() => provider)
 
   ctx.effect(() => {
