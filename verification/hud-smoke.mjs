@@ -147,5 +147,38 @@ function ev(type, data) {
   hud.dispose()
 }
 
+// 9) 整轮不清空：中途 ttlMs=0 挂住，turn/end 才给 5 秒
+{
+  const service = fakeService()
+  const hud = createHud({ service })
+  hud.observe(session, ev('tool/call', { name: 'phone_tap', arguments: { x: 1, y: 2 } }))
+  await sleep(340)
+  hud.observe(session, ev('turn/end', { turn: 1, reason: { kind: 'completed' } }))
+  await sleep(340)
+  const pushes = service.calls.filter((c) => c.method === 'hud_push')
+  check('动作行的 ttlMs=0（不自动淡出）', pushes[0]?.payload?.ttlMs === 0, JSON.stringify(pushes[0]?.payload))
+  check('turn/end 的 ttlMs=5000', pushes[1]?.payload?.ttlMs === 5000, JSON.stringify(pushes[1]?.payload))
+  hud.dispose()
+}
+
+// 10) 思考心跳：assistant/message 推一行，2.5 秒内不重复
+{
+  const service = fakeService()
+  const hud = createHud({ service })
+  hud.observe(session, ev('tool/call', { name: 'phone_ui_dump', arguments: {} }))
+  await sleep(340)
+  hud.observe(session, ev('assistant/message', { content: [{ type: 'text', text: '想一下' }] }))
+  await sleep(340)
+  hud.observe(session, ev('assistant/message', { content: [{ type: 'text', text: '再想一下' }] }))
+  await sleep(340)
+  const thinks = service.calls
+    .filter((c) => c.method === 'hud_push')
+    .flatMap((c) => c.payload.lines)
+    .filter((l) => l.kind === 'think')
+  check('assistant/message 推 think', thinks.length === 1, JSON.stringify(thinks))
+  check('思考行不含正文', thinks[0]?.text === '还在想', JSON.stringify(thinks[0]))
+  hud.dispose()
+}
+
 console.log(`\n${fail === 0 ? 'PASS' : 'FAIL'} ${pass} / ${fail}`)
 process.exitCode = fail === 0 ? 0 : 1

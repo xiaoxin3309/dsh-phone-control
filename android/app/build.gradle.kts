@@ -12,8 +12,8 @@ android {
         applicationId = "com.dsh.phonebridge"
         minSdk = 30
         targetSdk = 36
-        versionCode = 35
-        versionName = "0.0.35-m3"
+        versionCode = 36
+        versionName = "0.0.36-m3"
     }
 
     signingConfigs {

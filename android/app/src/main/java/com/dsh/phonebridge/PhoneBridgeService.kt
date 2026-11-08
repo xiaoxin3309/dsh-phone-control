@@ -58,7 +58,7 @@ class PhoneBridgeService : Service(), BridgeClient.Listener {
         super.onCreate()
         createChannel()
         registerNetworkCallback()
-        hud = HudOverlay(this)
+        hud = HudOverlay(this) { DshAccessibilityService.instance?.foreground() }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -891,7 +891,7 @@ class PhoneBridgeService : Service(), BridgeClient.Listener {
         val allow = getSharedPreferences(PREFS, MODE_PRIVATE)
             .getBoolean(KEY_ALLOW_SELF_CONTROL, false)
         if (allow) return false
-        val foreground = accessibility?.currentPackage() ?: return false
+        val foreground = accessibility?.foreground() ?: return false
         return foreground == packageName
     }
 }

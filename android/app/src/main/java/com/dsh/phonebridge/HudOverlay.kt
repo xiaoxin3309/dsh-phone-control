@@ -34,7 +34,14 @@ import org.json.JSONObject
  * 窗口本身是 NOT_FOCUSABLE | NOT_TOUCHABLE 的点穿窗口，不抢焦点、不挡点击。
  * 所有方法都必须在主线程调用（服务通过 main Handler 调到这儿）。
  */
-class HudOverlay(private val context: Context) {
+class HudOverlay(
+    private val context: Context,
+    /**
+     * 当前前台包名。手机桥自己的界面在前台时要摘窗（见 [syncForeground]）。
+     * 由服务注入（无障碍服务能读根节点包名），取不到时返回 null，那就照常显示。
+     */
+    private val foreground: () -> String? = { null },
+) {
 
     companion object {
         private const val TAG = "PhoneBridgeHud"
@@ -48,10 +55,16 @@ class HudOverlay(private val context: Context) {
         /** 单行最多多少字，超出用 … 截断（窗口只有一行高）。 */
         const val MAX_CHARS = 48
 
-        /** 静置多久整体淡出。 */
+        /** 一轮结束后的停留时间；中途的行由电脑端用 ttlMs=0 挂住，不自动淡出。 */
         const val IDLE_MS = 5_000L
 
+        /** ttlMs 上限：再久也总有个兜底，免得 HUD 永远挂在屏幕上。 */
+        private const val MAX_TTL_MS = 600_000L
+
         private const val FADE_MS = 220L
+
+        /** 前台包名的巡检间隔（事件漏了也能在一秒内收起）。 */
+        private const val WATCH_MS = 800L
     }
 
     private val prefs: SharedPreferences =
@@ -67,6 +80,16 @@ class HudOverlay(private val context: Context) {
     private var hiddenDepth = 0
     private var faded = true
     private var fadeRunnable: Runnable? = null
+    private var suppressed = false
+    private var lastTtl = IDLE_MS
+
+    /** 有内容在屏上（或被抑制）时巡检前台，一进手机桥自己的界面就摘窗。 */
+    private val watch = object : Runnable {
+        override fun run() {
+            syncForeground()
+            if (!faded && lines.isNotEmpty()) main.postDelayed(this, WATCH_MS)
+        }
+    }
 
     private val prefListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         if (key == KEY_ENABLED && !enabled()) {
@@ -111,15 +134,21 @@ class HudOverlay(private val context: Context) {
         }
 
         faded = false
-        render()
-        ensureAdded()
-        resetFade(ttlMs.coerceIn(1_000L, 60_000L))
-        return result(added, if (added) "shown" else "pending", lines.size)
+        lastTtl = if (ttlMs <= 0L) 0L else ttlMs.coerceIn(1_000L, MAX_TTL_MS)
+        syncForeground()
+        if (!suppressed) {
+            render()
+            ensureAdded()
+        }
+        applyFade()
+        startWatch()
+        return result(added, if (suppressed) "self" else if (added) "shown" else "pending", lines.size)
     }
 
     /** 一轮结束 / 换会话时清空，避免下次显示上一轮残留。 */
     fun clear() {
         cancelFade()
+        main.removeCallbacks(watch)
         lines.clear()
         faded = true
         detach()
@@ -149,9 +178,11 @@ class HudOverlay(private val context: Context) {
     fun afterCapture() {
         hiddenDepth = (hiddenDepth - 1).coerceAtLeast(0)
         if (hiddenDepth > 0 || faded || lines.isEmpty()) return
+        syncForeground()
+        if (suppressed) return
         render()
         ensureAdded()
-        resetFade(IDLE_MS)
+        applyFade()
     }
 
     fun destroy() {
@@ -180,7 +211,7 @@ class HudOverlay(private val context: Context) {
     }
 
     private fun ensureAdded() {
-        if (hiddenDepth > 0) return
+        if (hiddenDepth > 0 || suppressed) return
         val view = views().first
         // 正在淡出时来了新事件：把动画掐掉、透明度拉回来，否则新行会跟着旧内容一起消失。
         view.animate().cancel()
@@ -234,6 +265,36 @@ class HudOverlay(private val context: Context) {
     private fun cancelFade() {
         fadeRunnable?.let { main.removeCallbacks(it) }
         fadeRunnable = null
+    }
+
+    /** ttl=0 表示「整轮不清空」，只等 turn/end 给出停留时间后再淡出。 */
+    private fun applyFade() {
+        if (lastTtl <= 0L) cancelFade() else resetFade(lastTtl)
+    }
+
+    private fun startWatch() {
+        main.removeCallbacks(watch)
+        if (!faded && lines.isNotEmpty()) main.postDelayed(watch, WATCH_MS)
+    }
+
+    /**
+     * 手机桥自己的界面在前台时整块摘掉（不是淡出）：那是用户在配对/看设置，
+     * 不该有我们自己的浮层盖在上面。等用户切走，再从缓存的行重新显示。
+     */
+    private fun syncForeground() {
+        val pkg = runCatching { foreground() }.getOrNull()
+        val self = pkg != null && pkg == context.packageName
+        if (self == suppressed) return
+        suppressed = self
+        if (self) {
+            detach()
+            cancelFade()
+            return
+        }
+        if (faded || lines.isEmpty()) return
+        render()
+        ensureAdded()
+        applyFade()
     }
 
     // ------------------------------------------------------------------- 视图

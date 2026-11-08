@@ -198,13 +198,16 @@ You can also push by hand: `phone_notify { title, body, session }`. The `phone-n
 The app's settings page has a **Floating HUD** switch, **off by default** — turning it on the first time opens the system "display over other apps" page. Once it is on, a translucent strip at the top of the screen narrates what the agent is doing to this phone, one line per action:
 
 ```text
+… thinking about the next step
 ▸ tap text "WeChat"
+… still thinking
 ▸ type "hello"
-▸ read the node tree
 ✓ turn finished
 ```
 
-It shows **actions only**, never the assistant's answer text. Up to five lines, oldest dropped first, and the whole strip fades out after five seconds idle rather than collapsing into a thin bar. It is not touchable (taps go through) and never takes focus.
+It shows **actions plus a thinking heartbeat**, never the assistant's answer text. Up to five lines, oldest dropped first. **Lines stay on screen for the whole turn** instead of fading on idle; after `✓ turn finished` the strip fades out five seconds later rather than collapsing into a thin bar. It is not touchable (taps go through) and never takes focus.
+
+One more detail: **the strip hides itself while the bridge app is in the foreground** — while you are reading the pairing code or flipping permissions in the app, no self-owned overlay covers it; switch to another app and the lines you accumulated come back.
 
 The plugin only pushes from sessions that recently called a `phone_*` tool, so an ordinary chat will not suddenly put something on your screen; if the phone is offline, or you switch the HUD off in the app, the plugin stays quiet.
 

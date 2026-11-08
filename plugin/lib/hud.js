@@ -4,9 +4,12 @@
  * 只推动作，不推回答正文——HUD 是给旁边的人看的，不是把模型输出搬到手机上。
  * 只推「最近真的调用过 phone_* 的会话」，普通会话不动手机就不会突然冒出一条浮层。
  *
- * 传输层：service.request('hud_push', { lines: [{ kind, text }] })，手机上按 5 行、
- * 静置 5 秒淡出。手机上关掉开关或没授权时服务端会回 reason=disabled/permission，
- * 这里就静默一段时间，不重复打扰。
+ * 一整轮里动作行与「还在想」心跳累积不清空（ttlMs=0），turn/end 才给 5 秒的停留时间。
+ *
+ * 传输层：service.request('hud_push', { lines: [{ kind, text }], ttlMs })，手机上按 5 行、
+ * 超过就丢最旧的；手机桥自己的界面在前台时手机端会整块收起（不会盖住 App 自己）。
+ * 手机上关掉开关或没授权时服务端会回 reason=disabled/permission，这里就静默一段时间，
+ * 不重复打扰。
  */
 
 const THROTTLE_MS = 300
@@ -15,6 +18,13 @@ const ACTIVE_MS = 120_000
 const MAX_LINE = 40
 const MAX_QUEUE = 20
 const MAX_TRACKED = 100
+
+/** 一轮进行中不清空：ttl=0 交给手机端「挂住」，等 turn/end 再给停留时间。 */
+const HOLD_TTL_MS = 0
+/** 一轮结束后还留多久，跟手机端 IDLE_MS 对齐。 */
+const DONE_TTL_MS = 5_000
+/** 思考心跳的最小间隔：模型连续出几条 assistant 消息也只推一行。 */
+const THINK_GAP_MS = 2_500
 
 export const KIND_ACT = 'act'
 export const KIND_THINK = 'think'
@@ -104,6 +114,7 @@ function describe(name, args) {
 
 export function createHud({ service, logger }) {
   const active = new Map()
+  const thinkAt = new Map()
   const queue = []
   let timer = null
   let lastSent = 0
@@ -111,7 +122,11 @@ export function createHud({ service, logger }) {
   let disposed = false
 
   function trim() {
-    while (active.size > MAX_TRACKED) active.delete(active.keys().next().value)
+    while (active.size > MAX_TRACKED) {
+      const oldest = active.keys().next().value
+      active.delete(oldest)
+      thinkAt.delete(oldest)
+    }
   }
 
   function muted() {
@@ -143,8 +158,10 @@ export function createHud({ service, logger }) {
     const lines = queue.splice(0, MAX_QUEUE)
     if (muted()) return
     lastSent = Date.now()
+    // 中途的行挂住不淡出；只有「本轮结束」那一批带停留时间。
+    const ttlMs = lines.some((line) => line.kind === KIND_DONE) ? DONE_TTL_MS : HOLD_TTL_MS
     void service
-      .request('hud_push', { lines }, 4000)
+      .request('hud_push', { lines, ttlMs }, 4000)
       .then((result) => {
         const reason = typeof result?.reason === 'string' ? result.reason : ''
         if (reason === 'disabled' || reason === 'permission') mutedUntil = Date.now() + MUTE_MS
@@ -175,7 +192,17 @@ export function createHud({ service, logger }) {
         }
         case 'turn/start': {
           if (Date.now() - newer(id) > ACTIVE_MS) return
+          thinkAt.delete(id)
           enqueue(KIND_THINK, '正在思考下一步')
+          return
+        }
+        case 'assistant/message': {
+          // 思考心跳：不读正文，只表示「模型还在推进」，避免一整轮只有动作行。
+          if (Date.now() - newer(id) > ACTIVE_MS) return
+          const now = Date.now()
+          if (now - (thinkAt.get(id) ?? 0) < THINK_GAP_MS) return
+          thinkAt.set(id, now)
+          enqueue(KIND_THINK, '还在想')
           return
         }
         case 'turn/end': {

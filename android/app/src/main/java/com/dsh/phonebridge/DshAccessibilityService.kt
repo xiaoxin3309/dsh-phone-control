@@ -21,6 +21,10 @@ class DshAccessibilityService : AccessibilityService() {
 
     private val main = Handler(Looper.getMainLooper())
 
+    /** 最近一次 TYPE_WINDOW_STATE_CHANGED 报上来的前台包名。 */
+    @Volatile
+    private var foregroundPackage: String? = null
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
@@ -28,7 +32,12 @@ class DshAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        // 事件流留给后续的 UI 树/等待能力；当前按需读取根节点即可。
+        // 事件流主要用来跟住「现在哪个应用在前台」，供悬浮 HUD 判断要不要摘窗。
+        if (event == null) return
+        if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            val pkg = event.packageName?.toString()
+            if (!pkg.isNullOrEmpty()) foregroundPackage = pkg
+        }
     }
 
     override fun onInterrupt() {
@@ -151,6 +160,9 @@ class DshAccessibilityService : AccessibilityService() {
     fun globalAction(action: Int): Boolean = performGlobalAction(action)
 
     fun currentPackage(): String? = rootInActiveWindow?.packageName?.toString()
+
+    /** 事件里缓存的前台包名，取不到时退回读根节点。 */
+    fun foreground(): String? = foregroundPackage ?: currentPackage()
 
     // ---- 节点树（比截图便宜一到两个数量级） ----
 
