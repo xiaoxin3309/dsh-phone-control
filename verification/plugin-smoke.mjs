@@ -13,10 +13,15 @@ process.env.DSH_PROFILE_DIR = tmpProfile
 
 const tools = new Map()
 const disposers = []
+const listeners = new Map()
 let provided = null
 const ctx = {
   provide(name, value) {
     provided = { name, value }
+  },
+  on(name, handler, _options) {
+    listeners.set(name, handler)
+    return () => listeners.delete(name)
   },
   tools: {
     register(definition) {
@@ -58,9 +63,11 @@ const expected = [
   // v0.1.2 新增：节点树/文本定位一类的工具，以及 6 个远程文件读写工具
   'phone_ui_dump', 'phone_tap_text', 'phone_set_text',
   'phone_fs_list', 'phone_fs_stat', 'phone_fs_read', 'phone_fs_write', 'phone_fs_mkdir', 'phone_fs_rm',
+  // v0.1.4 新增：手动推手机通知（probe 可查手机端权限与开关）
+  'phone_notify',
 ]
 for (const name of expected) check(`注册工具 ${name}`, tools.has(name))
-check('工具总数为 21', tools.size >= 21, `size=${tools.size}`)
+check('工具总数为 22', tools.size >= 22, `size=${tools.size}`)
 
 check('ctx.provide 暴露 service', provided?.name === 'phoneBridgeSpike')
 
@@ -94,6 +101,53 @@ try {
   fsNoDevice = String(error.message ?? error)
 }
 check('无设备时 phone_fs_list 报 NO_DEVICE', fsNoDevice.includes('NO_DEVICE'), fsNoDevice)
+
+// ---- 会话通知：直接喂会话事件，看它怎么组包 ----
+const { createNotifier } = await import(pathToFileURL(path.join(ROOT, 'plugin', 'lib', 'notify.js')).href)
+const sent = []
+const notifier = createNotifier({
+  service: {
+    async request(cmd, args) {
+      sent.push({ cmd, args })
+      return { shown: true, reason: 'shown' }
+    },
+  },
+  logger: { warn() {} },
+})
+const session = { id: 'sess-abcdef123456', header: { id: 'sess-abcdef123456' } }
+notifier.observe(session, { type: 'session/title', data: { title: '修登录页' } })
+notifier.observe(session, { type: 'turn/start', data: { turn: 1 } })
+notifier.observe(session, {
+  type: 'assistant/message',
+  data: { turn: 1, message: { content: [{ type: 'text', text: '登录页修好了。' }] } },
+})
+notifier.observe(session, { type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } })
+notifier.observe(session, { type: 'turn/end', data: { turn: 2, reason: { kind: 'aborted' } } })
+notifier.observe(session, {
+  type: 'tool/call',
+  data: { name: 'ask_user_question', arguments: { questions: [{ question: '要保留旧的扫码入口吗？' }] } },
+})
+await new Promise((r) => setTimeout(r, 120))
+check('回答结束推一条 complete 通知（带会话名与摘要）',
+  sent.length === 2 && sent[0]?.cmd === 'notify' && sent[0].args.kind === 'complete'
+    && sent[0].args.title.includes('修登录页') && sent[0].args.body.includes('登录页修好了'),
+  JSON.stringify(sent[0]?.args ?? null))
+check('提问推一条 question 通知（带问题原文）',
+  sent[1]?.args.kind === 'question' && sent[1].args.body.includes('要保留旧的扫码入口吗'),
+  JSON.stringify(sent[1]?.args ?? null))
+check('非 completed 的 turn/end 不推送', sent.filter((s) => s.args.kind === 'complete').length === 1)
+
+const manualNoDevice = await tools.get('phone_notify').execute({ body: '测试' })
+check('无设备时 phone_notify 返回 no_device 而不抛错',
+  manualNoDevice.ok === false && manualNoDevice.reason === 'no_device', JSON.stringify(manualNoDevice))
+
+let probeErr = ''
+try {
+  await tools.get('phone_notify').execute({ probe: true })
+} catch (error) {
+  probeErr = String(error.message ?? error)
+}
+check('无设备时 phone_notify probe 报 NO_DEVICE', probeErr.includes('NO_DEVICE'), probeErr)
 
 const disconnect = await tools.get('phone_disconnect').execute({})
 check('phone_disconnect 可执行', disconnect.ok === true)

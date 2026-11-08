@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { SpikeService } from './lib/service.js'
+import { createNotifier } from './lib/notify.js'
 import { BASE_PATH, createHandler } from './lib/routes.js'
 
 export const name = 'dsh-phone-control'
@@ -18,31 +19,50 @@ const OUTPUT = {
   },
 }
 
-const SKILL_DIR = new URL('./skills/phone-control/', import.meta.url)
-const SKILL_PATH = new URL('./skills/phone-control/SKILL.md', import.meta.url)
-
-const CANDIDATE = {
-  name: 'phone-control',
-  description: '通过 DSH 手机桥操控已配对的 Android 手机：截图、坐标点击、长按、滑动、输入文本、返回/桌面/最近任务、打开应用。',
-  invocation: {
-    modelInvocable: true,
-    userInvocable: true,
+// 同一个插件带两个技能：操控手机、给手机发通知。各自一个目录，
+// provider 只负责把它们的 SKILL.md 交出去。
+const SKILLS = [
+  {
+    name: 'phone-control',
+    description:
+      '通过 DSH 手机桥操控已配对的 Android 手机：读控件树/按文字点击/输入文字，必要时截图和坐标操作，还能列目录、读写文件、建删目录。手机 App 需已连接电脑并开启无障碍服务。',
+    rank: 50,
   },
-  provider: 'dsh-phone-control',
-  source: 'bundled',
-  resourceBase: { kind: 'directory', path: fileURLToPath(SKILL_DIR) },
-  rank: 50,
-  locator: fileURLToPath(SKILL_PATH),
-}
+  {
+    name: 'phone-notify',
+    description:
+      '往已配对的 Android 手机推一条通知，或查手机端的通知权限与开关。会话回答结束、智能体提问需要回复时，插件也会自动推送。',
+    rank: 55,
+  },
+].map(({ name, description, rank }) => {
+  const dir = new URL(`./skills/${name}/`, import.meta.url)
+  return {
+    name,
+    candidate: {
+      name,
+      description,
+      invocation: {
+        modelInvocable: true,
+        userInvocable: true,
+      },
+      provider: 'dsh-phone-control',
+      source: 'bundled',
+      resourceBase: { kind: 'directory', path: fileURLToPath(dir) },
+      rank,
+      locator: fileURLToPath(new URL('SKILL.md', dir)),
+    },
+  }
+})
 
 const provider = {
   name: 'dsh-phone-control',
   async list() {
-    return [CANDIDATE]
+    return SKILLS.map((skill) => skill.candidate)
   },
   async get(candidate) {
-    if (candidate?.name !== 'phone-control') return undefined
-    const { rank: _rank, locator: entryPath, ...summary } = candidate
+    const skill = SKILLS.find((entry) => entry.name === candidate?.name)
+    if (skill === undefined) return undefined
+    const { rank: _rank, locator: entryPath, ...summary } = skill.candidate
     const raw = await readFile(entryPath, 'utf8')
     const body = raw.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/u, '').trim()
     return {
@@ -115,6 +135,7 @@ async function imageResult(ctx, raw) {
 export function apply(ctx, config) {
   const service = new SpikeService({ ctx, config })
   ctx.provide('phoneBridgeSpike', service)
+  const notifier = createNotifier({ service, logger: ctx.logger })
 
   // ---- settings page transport -------------------------------------------
   // Acquired through ctx.inject rather than a module-level `inject` entry: a
@@ -485,6 +506,30 @@ export function apply(ctx, config) {
       },
     }),
     makeTool({
+      name: 'phone_notify',
+      description:
+        '往已连接的手机推一条通知，通知里会写明来自哪个会话。只传 probe 时返回手机端的通知权限与开关状态。',
+      timeoutMs: 12000,
+      properties: {
+        title: { type: 'string', description: '通知标题，缺省「来自 DSH 的提醒」。' },
+        body: { type: 'string', description: '通知正文。' },
+        session: { type: 'string', description: '会话名或标识，手机上用它区分不同会话，缺省 dsh-manual。' },
+        probe: { type: 'boolean', description: '只查询手机端通知状态：系统权限、总开关、按类开关。' },
+      },
+      present: { card: 'generic', title: '手机通知', kind: 'action' },
+      async run(args) {
+        if (args.probe === true) {
+          return { ok: true, state: await notifier.state() }
+        }
+        const result = await notifier.manual({
+          title: args.title,
+          body: args.body,
+          session: args.session,
+        })
+        return { ok: result.sent, ...result }
+      },
+    }),
+    makeTool({
       name: 'phone_disconnect',
       description: '从电脑端断开当前手机连接；手机通知会变为未连接。',
       timeoutMs: 10000,
@@ -499,6 +544,13 @@ export function apply(ctx, config) {
   for (const definition of definitions) {
     ctx.effect(() => ctx.tools.register(definition), `dsh-phone-control: ${definition.name}`)
   }
+
+  // 会话事件 → 手机通知：一轮回答结束、智能体提问等回复。
+  // global: true 让所有会话都算进来，不只是当前这个。
+  ctx.effect(
+    () => ctx.on('session/event', (session, event) => notifier.observe(session, event), { global: true }),
+    'dsh-phone-control: session notifications',
+  )
 
   ctx.skills.registerProvider(() => provider)
 

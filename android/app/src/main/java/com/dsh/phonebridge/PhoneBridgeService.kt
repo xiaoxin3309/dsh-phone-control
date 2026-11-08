@@ -444,6 +444,37 @@ class PhoneBridgeService : Service(), BridgeClient.Listener {
                 else replyError(id, result.optString("code", "SET_TEXT_FAILED"), result.optString("message", "写入失败"))
             }
 
+            "notify" -> {
+                // 会话通知：电脑端（插件自动触发器或 phone_notify 工具）发来一条，
+                // 要不要真弹由本机三个开关 + 系统通知权限决定，结果回给电脑端。
+                val kind = args.optString("kind", NotifyCenter.KIND_MANUAL)
+                val reason = NotifyCenter.show(
+                    this,
+                    kind,
+                    args.optString("title"),
+                    args.optString("body"),
+                    args.optString("session"),
+                )
+                reply(
+                    id,
+                    JSONObject()
+                        .put("shown", reason == "shown")
+                        .put("reason", reason),
+                )
+            }
+
+            "notify_state" -> {
+                reply(
+                    id,
+                    JSONObject()
+                        .put("permission", NotifyCenter.permitted(this))
+                        .put("enabled", NotifyCenter.enabled(this))
+                        .put("complete", NotifyCenter.kindEnabled(this, NotifyCenter.KIND_COMPLETE))
+                        .put("question", NotifyCenter.kindEnabled(this, NotifyCenter.KIND_QUESTION))
+                        .put("manual", NotifyCenter.kindEnabled(this, NotifyCenter.KIND_MANUAL)),
+                )
+            }
+
             "list_apps" -> {
                 val apps = packageManager.getInstalledApplications(PackageManager.GET_META_DATA)
                     .asSequence()

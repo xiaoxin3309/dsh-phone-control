@@ -39,3 +39,8 @@ validate-skill.mjs
 proto-check-classes/
 testclasses/
 tmp/
+
+# 云同步客户端留下的临时文件
+*.baiduyun.*
+*.uploading.cfg
+

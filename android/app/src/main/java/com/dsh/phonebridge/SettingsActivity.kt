@@ -51,6 +51,11 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var filesSwitch: MaterialSwitch
     private lateinit var filesStatus: TextView
     private lateinit var selfControlSwitch: MaterialSwitch
+    private lateinit var notifySwitch: MaterialSwitch
+    private lateinit var notifyCompleteSwitch: MaterialSwitch
+    private lateinit var notifyQuestionSwitch: MaterialSwitch
+    private lateinit var notifyStatus: TextView
+    private lateinit var notifyPermissionButton: Button
 
     private val stateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -158,6 +163,11 @@ class SettingsActivity : AppCompatActivity() {
         filesSwitch = findViewById(R.id.filesSwitch)
         filesStatus = findViewById(R.id.filesStatus)
         selfControlSwitch = findViewById(R.id.selfControlSwitch)
+        notifySwitch = findViewById(R.id.notifySwitch)
+        notifyCompleteSwitch = findViewById(R.id.notifyCompleteSwitch)
+        notifyQuestionSwitch = findViewById(R.id.notifyQuestionSwitch)
+        notifyStatus = findViewById(R.id.notifyStatus)
+        notifyPermissionButton = findViewById(R.id.notifyPermissionButton)
 
         val prefs = prefs()
         urlInput.setText(prefs.getString(KEY_DSH_URL, ""))
@@ -213,6 +223,28 @@ class SettingsActivity : AppCompatActivity() {
             } else {
                 log("已禁止远端操作本 App 界面（默认）：tap/文字点击/输入类命令会被 SELF_PROTECTED 拒绝")
             }
+        }
+
+        // 会话通知：电脑端推来的「答完了 / 等你回复」要不要在本机弹，由这三个开关决定
+        notifySwitch.isChecked = NotifyCenter.enabled(this)
+        notifyCompleteSwitch.isChecked = NotifyCenter.kindEnabled(this, NotifyCenter.KIND_COMPLETE)
+        notifyQuestionSwitch.isChecked = NotifyCenter.kindEnabled(this, NotifyCenter.KIND_QUESTION)
+        refreshNotifyUi()
+        notifySwitch.setOnCheckedChangeListener { _, checked ->
+            NotifyCenter.setEnabled(this, checked)
+            if (checked && !NotifyCenter.permitted(this)) requestNotificationPermission()
+            refreshNotifyUi()
+        }
+        notifyCompleteSwitch.setOnCheckedChangeListener { _, checked ->
+            NotifyCenter.setKindEnabled(this, NotifyCenter.KIND_COMPLETE, checked)
+            refreshNotifyUi()
+        }
+        notifyQuestionSwitch.setOnCheckedChangeListener { _, checked ->
+            NotifyCenter.setKindEnabled(this, NotifyCenter.KIND_QUESTION, checked)
+            refreshNotifyUi()
+        }
+        notifyPermissionButton.setOnClickListener {
+            if (Build.VERSION.SDK_INT >= 33) requestNotificationPermission() else openAppNotificationSettings()
         }
 
         keepAwake.setOnCheckedChangeListener { _, checked ->
@@ -303,6 +335,33 @@ class SettingsActivity : AppCompatActivity() {
         filesStatus.text = getString(if (files) R.string.perm_files_on else R.string.perm_files_off)
     }
 
+    private fun refreshNotifyUi() {
+        val permitted = NotifyCenter.permitted(this)
+        val master = NotifyCenter.enabled(this)
+        notifyStatus.text = getString(
+            R.string.notify_status_fmt,
+            getString(if (permitted) R.string.notify_perm_on else R.string.notify_perm_off),
+            if (master) "开" else "关",
+            if (NotifyCenter.kindEnabled(this, NotifyCenter.KIND_COMPLETE)) "开" else "关",
+            if (NotifyCenter.kindEnabled(this, NotifyCenter.KIND_QUESTION)) "开" else "关",
+        )
+        notifyPermissionButton.visibility = if (permitted) View.GONE else View.VISIBLE
+        val active = master && permitted
+        notifyCompleteSwitch.isEnabled = active
+        notifyQuestionSwitch.isEnabled = active
+    }
+
+    private fun openAppNotificationSettings() {
+        try {
+            startActivity(
+                Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                    .putExtra(Settings.EXTRA_APP_PACKAGE, packageName),
+            )
+        } catch (e: Exception) {
+            toast("没有找到本 App 的通知设置页")
+        }
+    }
+
     override fun onRequestPermissionsResult(
         requestCode: Int,
         permissions: Array<out String>,
@@ -317,9 +376,11 @@ class SettingsActivity : AppCompatActivity() {
                 log("摄像头权限未授予")
             }
         }
+        refreshNotifyUi()
     }
 
-    /** 用系统默认浏览器打开开源仓库；本机没有浏览器时退化成复制链接 */    private fun openRepoInBrowser() {
+    /** 用系统默认浏览器打开开源仓库；本机没有浏览器时退化成复制链接 */
+    private fun openRepoInBrowser() {
         val url = "https://github.com/xiaoxin3309/dsh-phone-control"
         try {
             startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
@@ -358,6 +419,7 @@ class SettingsActivity : AppCompatActivity() {
         if (lastState.isNotEmpty()) renderState(lastState, PhoneBridgeService.lastDetail)
         // 从系统设置页回来时权限可能已经变了
         refreshPermissionUi()
+        refreshNotifyUi()
     }
 
     private fun saveSettings() {

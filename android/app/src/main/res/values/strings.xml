@@ -70,4 +70,18 @@
     <!-- v0.0.30 扫码配对 -->
     <string name="scan_pair">扫码配对（扫电脑上的二维码）</string>
     <string name="scan_hint">把电脑「设置 → 手机桥 → 扫码配对」里的二维码放进取景框，扫到会自动填好配对码。</string>
+
+    <!-- v0.0.32 会话通知 -->
+    <string name="section_notify">会话通知</string>
+    <string name="notify_hint">智能体答完一轮、或在等你回答时，手机弹一条通知。三个开关都在本机；系统通知权限被关掉时这里会提示。</string>
+    <string name="notify_master">允许会话通知</string>
+    <string name="notify_master_hint">总开关。关掉后下面两项都不生效。</string>
+    <string name="notify_complete">回答完成时通知</string>
+    <string name="notify_complete_hint">这一轮答完了、在等你输入的时候才发；中途还在干活不发。</string>
+    <string name="notify_question">提问待回复时通知</string>
+    <string name="notify_question_hint">智能体提问、在等你回答时提醒，通知里带会话名和问题。</string>
+    <string name="notify_grant">去开启通知权限</string>
+    <string name="notify_perm_on">已授予</string>
+    <string name="notify_perm_off">未授予</string>
+    <string name="notify_status_fmt">系统通知权限：%1$s；总开关：%2$s；已完成通知：%3$s；待回复通知：%4$s</string>
 </resources>
