@@ -43,7 +43,11 @@ The settings panel appears under *Settings → Phone bridge*.
 | `phone_fs_read` / `phone_fs_write` | Read a file (UTF-8 or base64, paged) / write text or base64 |
 | `phone_fs_mkdir` / `phone_fs_rm` | Create a directory tree / delete a file or directory |
 | `phone_status` / `phone_pair_code` / `phone_disconnect` | Listener state, pairing code, drop session |
+| `phone_notify` | Push a notification to the phone; `probe: true` reports its permission and switches |
 
+Two things push themselves: a finished turn ("<session> finished") and a question waiting for an answer
+("<session> is waiting for you"), both labelled with the session title. The app has a *Session notifications*
+card with the system permission plus a switch per category; `phone_notify { probe: true }` reads that state.
 While the phone's foreground app is the bridge itself, the input tools answer `SELF_PROTECTED`; the app's
 *Permissions & security* card has a switch (off by default) that lifts it. The file tools stay inside the app's
 private directory until all-files access is granted (`PERMISSION_DENIED` otherwise).

@@ -24,7 +24,7 @@ JSON（通常几百 token），而且带着截图给不了的信息：文字、v
 ## 仓库结构
 
 ```
-plugin/        DSH 插件：21 个工具 + 设置面板（npm 包名 `dsh-phone-control`）
+plugin/        DSH 插件：22 个工具 + 设置面板（npm 包名 `dsh-phone-control`）
 android/       Android App：无障碍服务 + 连接客户端的实现
 verification/  用 Node.js 跑协议、设置接口和打包产物的验证脚本
 ```
@@ -151,6 +151,7 @@ ingress:
 | `phone_fs_read` / `phone_fs_write` | 读文件（UTF-8 文本或 base64，`offset`/`length` 分块）/ 写文本或 base64 |
 | `phone_fs_mkdir` / `phone_fs_rm` | 建目录（父目录一起建）/ 删文件或目录 |
 | `phone_disconnect` | 从电脑端断开当前会话 |
+| `phone_notify` | 往手机推一条通知（`title` / `body` / `session`）；`probe: true` 查手机端通知权限与开关 |
 
 典型流程：
 
@@ -169,6 +170,16 @@ phone_ui_dump                      → 确认界面已经变了
 - 没开「所有文件访问」时，文件类工具只能碰 App 私有目录，越界回 `PERMISSION_DENIED`；那张卡片能直接跳到
   系统开关。
 
+## 会话通知
+
+有两件事值得在你不看屏幕时推一条：一轮回答刚结束，以及有个问题在等你回答。插件盯着所有会话的事件，把这两类推到手机：
+
+- `turn/end` 且 `reason.kind === 'completed'` → **「某会话已回答」**，附最后一段回复的尾巴。
+- `tool/call` 打到 `ask_user_question` → **「某会话在等你回答」**，附问题原文。
+
+标题里的会话名取自会话标题（拿不到就退化成 id 的前 8 位），所以几路会话同时跑也分得清。手机没连、或者用户在 App 里关了某一类，就安静地不发，工具调用回 `{sent: false, reason}` 而不是报错。App 的「会话通知」卡片里有系统权限、总开关和两个分类开关；想知道当前状态用 `phone_notify { probe: true }`。
+
+也可以手动推：`phone_notify { title, body, session }`。什么时候值得打断用户，见 `phone-notify` 技能。
 ## 工作原理
 
 ```

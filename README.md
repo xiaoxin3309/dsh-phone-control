@@ -27,7 +27,7 @@ widgets marked `importantForAccessibility="no"` are invisible to it. That is exa
 ## What is in this repository
 
 ```
-plugin/        DSH plugin: 21 tools + a settings panel (npm package `dsh-phone-control`)
+plugin/        DSH plugin: 22 tools + a settings panel (npm package `dsh-phone-control`)
 android/       Android app that runs the accessibility service and the bridge client
 verification/  Node.js scripts that exercise the protocol, the settings API and the packaged tarball
 ```
@@ -162,6 +162,7 @@ other overlay network works just as well — the app only needs a TCP route to t
 | `phone_fs_read` / `phone_fs_write` | Read a file (UTF-8 or base64, paged with `offset`/`length`) / write text or base64 |
 | `phone_fs_mkdir` / `phone_fs_rm` | Create a directory tree / delete a file or directory |
 | `phone_disconnect` | Drop the current session from the computer side |
+| `phone_notify` | Push a notification to the phone (`title` / `body` / `session`); `probe: true` reports the app-side permission and switches |
 
 Typical loop:
 
@@ -180,6 +181,16 @@ Two guards are on by default:
 - File tools only reach the app's private directory until **all-files access** is granted; otherwise they answer
   `PERMISSION_DENIED`. The same card links straight to the system toggle.
 
+## Session notifications
+
+Two things are worth a notification when you are not looking at the screen: a turn that just finished, and a question that is waiting on you. The plugin watches every session's events and pushes both to the phone:
+
+- `turn/end` with `reason.kind === 'completed'` → **"<session> finished"**, with the tail of the last answer.
+- `tool/call` to `ask_user_question` → **"<session> is waiting for you"**, with the question text.
+
+The label is the session title (falling back to the first eight characters of its id), so several sessions stay distinguishable. If the phone is offline, or the user switched a category off, nothing is sent and nothing fails — the tool call returns `{sent: false, reason}` instead. The app has its own card for the system permission plus a master switch and one switch per category; ask for the state with `phone_notify { probe: true }`.
+
+You can also push by hand: `phone_notify { title, body, session }`. The `phone-notify` skill has the "when is it worth interrupting the user" heuristics.
 ## How it works
 
 ```
