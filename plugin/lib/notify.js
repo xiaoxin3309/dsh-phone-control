@@ -50,6 +50,7 @@ function questionText(args) {
 
 export function createNotifier({ service, logger }) {
   const titles = new Map()
+  const scanned = new Set()
   const lastText = new Map()
   const recent = new Map()
 
@@ -57,11 +58,42 @@ export function createNotifier({ service, logger }) {
     for (const map of [titles, lastText, recent]) {
       while (map.size > MAX_TRACKED) map.delete(map.keys().next().value)
     }
+    while (scanned.size > MAX_TRACKED) scanned.delete(scanned.values().next().value)
+  }
+
+  /**
+   * 会话标题只在「标题生成那一刻」发过一次 session/title 事件。
+   * 插件是 DSH 启动后才挂上的，早于它的标题事件永远不会经过 observe()，
+   * 所以这里补一次历史回查：拿会话自己的事件快照，从后往前找最后一条标题。
+   */
+  function titleFromLog(session) {
+    try {
+      if (typeof session?.snapshotEvents !== 'function') return ''
+      const events = session.snapshotEvents()
+      if (!Array.isArray(events)) return ''
+      for (let i = events.length - 1; i >= 0; i -= 1) {
+        const event = events[i]
+        if (event?.type !== 'session/title') continue
+        const title = event.data?.title
+        if (typeof title === 'string' && title.trim().length > 0) return title.trim()
+      }
+    } catch (error) {
+      logger?.debug?.(`[phone-control] title lookup failed: ${error?.message ?? String(error)}`)
+    }
+    return ''
   }
 
   function label(sessionId, session) {
     const remembered = titles.get(sessionId)
     if (typeof remembered === 'string' && remembered.length > 0) return remembered
+    if (!scanned.has(sessionId)) {
+      scanned.add(sessionId)
+      const historical = titleFromLog(session)
+      if (historical.length > 0) {
+        titles.set(sessionId, historical)
+        return historical
+      }
+    }
     const fromHeader = session?.header?.title
     if (typeof fromHeader === 'string' && fromHeader.trim().length > 0) return fromHeader.trim()
     return `会话 ${sessionId.slice(0, 8)}`

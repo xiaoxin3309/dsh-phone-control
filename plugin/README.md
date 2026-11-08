@@ -42,7 +42,7 @@ The settings panel appears under *Settings → Phone bridge*.
 | `phone_fs_list` / `phone_fs_stat` | List a directory (default `/sdcard`) / stat a path |
 | `phone_fs_read` / `phone_fs_write` | Read a file (UTF-8 or base64, paged) / write text or base64 |
 | `phone_fs_mkdir` / `phone_fs_rm` | Create a directory tree / delete a file or directory |
-| `phone_status` / `phone_pair_code` / `phone_disconnect` | Listener state, pairing code, drop session |
+| `phone_status` / `phone_pair_code` / `phone_disconnect` | Listener state, pairing code, drop session; `forget: true` revokes every issued token |
 | `phone_notify` | Push a notification to the phone; `probe: true` reports its permission and switches |
 
 Two things push themselves: a finished turn ("<session> finished") and a question waiting for an answer

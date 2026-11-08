@@ -188,7 +188,7 @@ Two things are worth a notification when you are not looking at the screen: a tu
 - `turn/end` with `reason.kind === 'completed'` → **"<session> finished"**, with the tail of the last answer.
 - `tool/call` to `ask_user_question` → **"<session> is waiting for you"**, with the question text.
 
-The label is the session title (falling back to the first eight characters of its id), so several sessions stay distinguishable. If the phone is offline, or the user switched a category off, nothing is sent and nothing fails — the tool call returns `{sent: false, reason}` instead. The app has its own card for the system permission plus a master switch and one switch per category; ask for the state with `phone_notify { probe: true }`.
+The label is the session title (falling back to the first eight characters of its id), so several sessions stay distinguishable — including titles set before the plugin loaded, which are read back from the session log once. If the phone is offline, or the user switched a category off, nothing is sent and nothing fails — the tool call returns `{sent: false, reason}` instead. The app has its own card for the system permission plus a master switch and one switch per category; ask for the state with `phone_notify { probe: true }`.
 
 You can also push by hand: `phone_notify { title, body, session }`. The `phone-notify` skill has the "when is it worth interrupting the user" heuristics.
 ## How it works

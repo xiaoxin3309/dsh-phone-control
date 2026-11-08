@@ -34,6 +34,8 @@
     <string name="accessibility_description">用于 DSH 手机桥的截图、点击、滑动与输入。</string>
 
     <!-- v0.0.26 UI -->
+    <string name="settings_version_placeholder">版本 0.0.0</string>
+    <string name="settings_version_fmt">版本 %1$s（%2$d）· %3$s</string>
     <string name="settings_subtitle_new">连接电脑、打开 DSH 网页、授权无障碍，都在这一页。</string>
     <string name="section_status">连接状态</string>
     <string name="section_bridge">电脑控制通道</string>

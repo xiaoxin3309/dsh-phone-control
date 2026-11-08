@@ -168,6 +168,7 @@ class SettingsActivity : AppCompatActivity() {
         notifyQuestionSwitch = findViewById(R.id.notifyQuestionSwitch)
         notifyStatus = findViewById(R.id.notifyStatus)
         notifyPermissionButton = findViewById(R.id.notifyPermissionButton)
+        showVersion()
 
         val prefs = prefs()
         urlInput.setText(prefs.getString(KEY_DSH_URL, ""))
@@ -333,6 +334,29 @@ class SettingsActivity : AppCompatActivity() {
         val files = hasAllFilesAccess()
         filesSwitch.isChecked = files
         filesStatus.text = getString(if (files) R.string.perm_files_on else R.string.perm_files_off)
+    }
+
+    /** 顶部那行小字：手机上报出来的版本号与包名，用来确认装的是不是刚构建的那个包。 */
+    private fun showVersion() {
+        val view = findViewById<TextView>(R.id.settingsVersion) ?: return
+        val info = try {
+            if (Build.VERSION.SDK_INT >= 33) {
+                packageManager.getPackageInfo(packageName, PackageManager.PackageInfoFlags.of(0))
+            } else {
+                @Suppress("DEPRECATION")
+                packageManager.getPackageInfo(packageName, 0)
+            }
+        } catch (error: Exception) {
+            null
+        }
+        if (info == null) return
+        val code = if (Build.VERSION.SDK_INT >= 28) {
+            info.longVersionCode.toInt()
+        } else {
+            @Suppress("DEPRECATION")
+            info.versionCode
+        }
+        view.text = getString(R.string.settings_version_fmt, info.versionName ?: "?", code, packageName)
     }
 
     private fun refreshNotifyUi() {

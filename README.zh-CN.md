@@ -177,7 +177,7 @@ phone_ui_dump                      → 确认界面已经变了
 - `turn/end` 且 `reason.kind === 'completed'` → **「某会话已回答」**，附最后一段回复的尾巴。
 - `tool/call` 打到 `ask_user_question` → **「某会话在等你回答」**，附问题原文。
 
-标题里的会话名取自会话标题（拿不到就退化成 id 的前 8 位），所以几路会话同时跑也分得清。手机没连、或者用户在 App 里关了某一类，就安静地不发，工具调用回 `{sent: false, reason}` 而不是报错。App 的「会话通知」卡片里有系统权限、总开关和两个分类开关；想知道当前状态用 `phone_notify { probe: true }`。
+标题里的会话名取自会话标题（拿不到就退化成 id 的前 8 位），所以几路会话同时跑也分得清；插件晚于会话启动时才挂载也不影响——拿不到标题时会从会话日志里回查一次。手机没连、或者用户在 App 里关了某一类，就安静地不发，工具调用回 `{sent: false, reason}` 而不是报错。App 的「会话通知」卡片里有系统权限、总开关和两个分类开关；想知道当前状态用 `phone_notify { probe: true }`。
 
 也可以手动推：`phone_notify { title, body, session }`。什么时候值得打断用户，见 `phone-notify` 技能。
 ## 工作原理

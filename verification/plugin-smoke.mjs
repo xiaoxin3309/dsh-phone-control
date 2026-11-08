@@ -127,14 +127,34 @@ notifier.observe(session, {
   type: 'tool/call',
   data: { name: 'ask_user_question', arguments: { questions: [{ question: '要保留旧的扫码入口吗？' }] } },
 })
+// 插件晚于标题事件挂载时，靠会话历史回查补出真实标题（sess-abcdef… 那条是实时事件路径）
+const historical = {
+  id: 'sess-9876543210fe',
+  header: { id: 'sess-9876543210fe' },
+  snapshotEvents() {
+    return [
+      { type: 'turn/start', data: { turn: 1 } },
+      { type: 'session/title', data: { title: '手机桥配对排错' } },
+    ]
+  },
+}
+notifier.observe(historical, {
+  type: 'tool/call',
+  data: { name: 'ask_user_question', arguments: { questions: [{ question: '要继续吗？' }] } },
+})
 await new Promise((r) => setTimeout(r, 120))
 check('回答结束推一条 complete 通知（带会话名与摘要）',
-  sent.length === 2 && sent[0]?.cmd === 'notify' && sent[0].args.kind === 'complete'
+  sent.length >= 2 && sent[0]?.cmd === 'notify' && sent[0].args.kind === 'complete'
     && sent[0].args.title.includes('修登录页') && sent[0].args.body.includes('登录页修好了'),
   JSON.stringify(sent[0]?.args ?? null))
 check('提问推一条 question 通知（带问题原文）',
   sent[1]?.args.kind === 'question' && sent[1].args.body.includes('要保留旧的扫码入口吗'),
   JSON.stringify(sent[1]?.args ?? null))
+check('标题事件早于插件挂载时，从会话历史回查到真实标题',
+  sent[2]?.args.kind === 'question'
+    && sent[2].args.title.includes('手机桥配对排错')
+    && !sent[2].args.title.includes('会话 sess-9876'),
+  JSON.stringify(sent[2]?.args ?? null))
 check('非 completed 的 turn/end 不推送', sent.filter((s) => s.args.kind === 'complete').length === 1)
 
 const manualNoDevice = await tools.get('phone_notify').execute({ body: '测试' })
