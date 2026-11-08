@@ -205,7 +205,7 @@ The app's settings page has a **Floating HUD** switch, **off by default** — tu
 ✓ turn finished
 ```
 
-It shows **actions and live thinking**, never the assistant's answer text. The thinking line streams: while the model reasons, that one line keeps scrolling in place (the newest tail, pushed every 400 ms) instead of piling up new rows. Actions plus that line hold at five rows, oldest dropped first. **Lines stay on screen for the whole turn** instead of fading on idle; after `✓ turn finished` the strip fades out five seconds later rather than collapsing into a thin bar. It is not touchable (taps go through) and never takes focus.
+It shows **actions and live thinking**, never the assistant's answer text. The thinking line streams: while the model reasons, that one line keeps scrolling in place (the newest tail, pushed every 400 ms) instead of piling up new rows. Actions plus that line hold at five rows, oldest dropped first. **Lines stay on screen for the whole turn** instead of fading on idle; after `✓ turn finished` the strip stays another seven seconds, then fades out gradually over one second rather than collapsing into a thin bar or vanishing at once. It is not touchable (taps go through) and never takes focus.
 
 One more detail: **the strip hides itself while the bridge app is in the foreground** — while you are reading the pairing code or flipping permissions in the app, no self-owned overlay covers it; switch to another app and the lines you accumulated come back.
 

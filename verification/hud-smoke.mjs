@@ -147,7 +147,7 @@ function ev(type, data) {
   hud.dispose()
 }
 
-// 9) 整轮不清空：中途 ttlMs=0 挂住，turn/end 才给 5 秒
+// 9) 整轮不清空：中途 ttlMs=0 挂住，turn/end 才给 7 秒
 {
   const service = fakeService()
   const hud = createHud({ service })
@@ -157,7 +157,7 @@ function ev(type, data) {
   await sleep(340)
   const pushes = service.calls.filter((c) => c.method === 'hud_push')
   check('动作行的 ttlMs=0（不自动淡出）', pushes[0]?.payload?.ttlMs === 0, JSON.stringify(pushes[0]?.payload))
-  check('turn/end 的 ttlMs=5000', pushes[1]?.payload?.ttlMs === 5000, JSON.stringify(pushes[1]?.payload))
+  check('turn/end 的 ttlMs=7000', pushes[1]?.payload?.ttlMs === 7000, JSON.stringify(pushes[1]?.payload))
   hud.dispose()
 }
 
@@ -228,6 +228,28 @@ function ev(type, data) {
     .flatMap((c) => c.payload.lines)
     .filter((l) => l.kind === 'think' && l.text === '还在想')
   check('流式思考期间不补心跳', hearts.length === 0, JSON.stringify(hearts))
+  hud.dispose()
+}
+
+// 14) 调完手机之后过了十分钟（只是思考、没再调手机）：新一轮不推 → 浮层卡住不滚也不消失的回归
+{
+  const service = fakeService()
+  const hud = createHud({ service })
+  hud.observe(session, ev('tool/call', { name: 'phone_ui_dump', arguments: {} }))
+  await sleep(340)
+  const realNow = Date.now
+  Date.now = () => realNow() + 10 * 60_000
+  try {
+    hud.observe(session, ev('turn/start', { turn: 2 }))
+    await sleep(340)
+    hud.observe(session, ev('turn/end', { turn: 2, reason: { kind: 'completed' } }))
+    await sleep(340)
+  } finally {
+    Date.now = realNow
+  }
+  const pushes = service.calls.filter((c) => c.method === 'hud_push')
+  check('十分钟后新的一轮仍推思考行', pushes.some((c) => c.payload.lines.some((l) => l.text === '正在思考下一步')), JSON.stringify(pushes.map((c) => c.payload)))
+  check('十分钟后 turn/end 仍给 7 秒（能淡出）', pushes.some((c) => c.payload.ttlMs === 7000), JSON.stringify(pushes.map((c) => c.payload)))
   hud.dispose()
 }
 

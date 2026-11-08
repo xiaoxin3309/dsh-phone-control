@@ -4,7 +4,7 @@
  * 只推动作，不推回答正文——HUD 是给旁边的人看的，不是把模型输出搬到手机上。
  * 只推「最近真的调用过 phone_* 的会话」，普通会话不动手机就不会突然冒出一条浮层。
  *
- * 一整轮里动作行与「还在想」心跳累积不清空（ttlMs=0），turn/end 才给 5 秒的停留时间。
+ * 一整轮里动作行与「还在想」心跳累积不清空（ttlMs=0），turn/end 才给 7 秒的停留时间再淡出。
  *
  * 传输层：service.request('hud_push', { lines: [{ kind, text }], ttlMs })，手机上按 5 行、
  * 超过就丢最旧的；手机桥自己的界面在前台时手机端会整块收起（不会盖住 App 自己）。
@@ -15,6 +15,12 @@
 const THROTTLE_MS = 300
 const MUTE_MS = 60_000
 const ACTIVE_MS = 120_000
+/**
+ * 「这个会话还算在操控手机」的宽限：从最近一次 `phone_*` 调用算起。
+ * 一轮里调完一次手机后会连续思考几分钟，这期间不能再要求「120 秒内调过手机」，
+ * 否则思考行就停在那儿不动了。
+ */
+const ENGAGED_MS = 20 * 60_000
 const MAX_LINE = 40
 const MAX_QUEUE = 20
 const MAX_TRACKED = 100
@@ -22,7 +28,7 @@ const MAX_TRACKED = 100
 /** 一轮进行中不清空：ttl=0 交给手机端「挂住」，等 turn/end 再给停留时间。 */
 const HOLD_TTL_MS = 0
 /** 一轮结束后还留多久，跟手机端 IDLE_MS 对齐。 */
-const DONE_TTL_MS = 5_000
+const DONE_TTL_MS = 7_000
 /** 思考心跳的最小间隔：模型连续出几条 assistant 消息也只推一行。 */
 const THINK_GAP_MS = 2_500
 /** 流式思考的推送节奏：比动作慢一点，免得手机端一直在重排。 */
@@ -162,6 +168,12 @@ export function createHud({ service, logger }) {
     return at === undefined ? 0 : at
   }
 
+  /** 记一次「这个会话还在推进」：turn 之内每个事件都刷新，避免宽限被思考时间吃掉。 */
+  function touch(id) {
+    active.set(id, Date.now())
+    if (active.size > MAX_TRACKED) trim()
+  }
+
   function enqueue(kind, text, replaceLast = false) {
     if (disposed || typeof text !== 'string' || text.length === 0) return
     if (queue.length >= MAX_QUEUE) queue.shift()
@@ -212,13 +224,13 @@ export function createHud({ service, logger }) {
         case 'tool/call': {
           const name = typeof data.name === 'string' ? data.name : ''
           if (!name.startsWith('phone_') || SKIP.has(name)) return
-          active.set(id, Date.now())
-          trim()
+          touch(id)
           enqueue(KIND_ACT, describe(name, data.arguments))
           return
         }
         case 'turn/start': {
-          if (Date.now() - newer(id) > ACTIVE_MS) return
+          if (Date.now() - newer(id) > ENGAGED_MS) return
+          touch(id)
           thinkAt.delete(id)
           enqueue(KIND_THINK, '正在思考下一步')
           return
@@ -226,7 +238,8 @@ export function createHud({ service, logger }) {
         case 'assistant/message': {
           // 思考心跳：不读正文，只表示「模型还在推进」，避免一整轮只有动作行。
           // 有流式思考正在来时不必再补一句，否则两行说的是同一件事。
-          if (Date.now() - newer(id) > ACTIVE_MS) return
+          if (Date.now() - newer(id) > ENGAGED_MS) return
+          touch(id)
           if (Date.now() - (streamAt.get(id) ?? 0) < STREAM_HOLD_MS) return
           const now = Date.now()
           if (now - (thinkAt.get(id) ?? 0) < THINK_GAP_MS) return
@@ -235,7 +248,8 @@ export function createHud({ service, logger }) {
           return
         }
         case 'turn/end': {
-          if (Date.now() - newer(id) > ACTIVE_MS) return
+          if (Date.now() - newer(id) > ENGAGED_MS) return
+          touch(id)
           if (data.reason?.kind === 'completed') enqueue(KIND_DONE, '本轮结束')
           return
         }
@@ -271,7 +285,8 @@ export function createHud({ service, logger }) {
       if (chunk?.type !== 'reasoning-delta' || typeof chunk.text !== 'string') return
       // 没在操控手机的会话不往手机上推
       const now = Date.now()
-      if (now - newer(id) > ACTIVE_MS) return
+      if (now - newer(id) > ENGAGED_MS) return
+      touch(id)
       if (muted()) return
       const text = `${streamText.get(id) ?? ''}${chunk.text}`.slice(-MAX_THINK)
       streamText.set(id, text)

@@ -56,12 +56,13 @@ class HudOverlay(
         const val MAX_CHARS = 48
 
         /** 一轮结束后的停留时间；中途的行由电脑端用 ttlMs=0 挂住，不自动淡出。 */
-        const val IDLE_MS = 5_000L
+        const val IDLE_MS = 7_000L
 
         /** ttlMs 上限：再久也总有个兜底，免得 HUD 永远挂在屏幕上。 */
         private const val MAX_TTL_MS = 600_000L
 
-        private const val FADE_MS = 220L
+        /** 淡出的时长：长一点、慢一点，别像「啪」一下消失。 */
+        private const val FADE_MS = 1_000L
 
         /** 前台包名的巡检间隔（事件漏了也能在一秒内收起）。 */
         private const val WATCH_MS = 800L
@@ -273,9 +274,9 @@ class HudOverlay(
         fadeRunnable = null
     }
 
-    /** ttl=0 表示「整轮不清空」，只等 turn/end 给出停留时间后再淡出。 */
+    /** ttl=0 表示「整轮不清空」，但也不能永远挂着：兜一个上限，免得异常时卡死在屏幕上。 */
     private fun applyFade() {
-        if (lastTtl <= 0L) cancelFade() else resetFade(lastTtl)
+        resetFade(if (lastTtl <= 0L) MAX_TTL_MS else lastTtl)
     }
 
     private fun startWatch() {
