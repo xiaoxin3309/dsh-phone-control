@@ -36,7 +36,9 @@ class DshAccessibilityService : AccessibilityService() {
         if (event == null) return
         if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             val pkg = event.packageName?.toString()
-            if (!pkg.isNullOrEmpty()) foregroundPackage = pkg
+            // 浮层自己也挂在 WindowManager 里，加窗/摘窗会带出我们包名的窗口事件；
+            // 把它当成「手机桥在前台」就会把浮层自己摘掉（表现为一闪就没）。
+            if (!pkg.isNullOrEmpty() && pkg != packageName) foregroundPackage = pkg
         }
     }
 
@@ -161,8 +163,14 @@ class DshAccessibilityService : AccessibilityService() {
 
     fun currentPackage(): String? = rootInActiveWindow?.packageName?.toString()
 
-    /** 事件里缓存的前台包名，取不到时退回读根节点。 */
-    fun foreground(): String? = foregroundPackage ?: currentPackage()
+    /**
+     * 当前前台包名。
+     *
+     * 优先读根节点：浮层是 NOT_FOCUSABLE 的，不会成为活动窗口，所以根节点始终是
+     * 「真正在前台的那个应用」，比事件缓存可靠（缓存可能被我们自己的浮层窗口事件污染）。
+     * 读不到根节点时再退回缓存。
+     */
+    fun foreground(): String? = currentPackage() ?: foregroundPackage
 
     // ---- 节点树（比截图便宜一到两个数量级） ----
 

@@ -66,6 +66,9 @@ class HudOverlay(
 
         /** 前台包名的巡检间隔（事件漏了也能在一秒内收起）。 */
         private const val WATCH_MS = 800L
+
+        /** 「手机桥自己在前台」要连续命中几次才摘窗，避免过渡瞬间误判。 */
+        private const val SELF_CONFIRM = 2
     }
 
     private val prefs: SharedPreferences =
@@ -82,6 +85,8 @@ class HudOverlay(
     private var faded = true
     private var fadeRunnable: Runnable? = null
     private var suppressed = false
+    /** 连续几次巡检都判定「自己在前台」。 */
+    private var selfHits = 0
     private var lastTtl = IDLE_MS
 
     /** 有内容在屏上（或被抑制）时巡检前台，一进手机桥自己的界面就摘窗。 */
@@ -114,6 +119,8 @@ class HudOverlay(
         .put("enabled", enabled())
         .put("permission", permitted())
         .put("visible", added)
+        .put("suppressed", suppressed)
+        .put("ttlMs", lastTtl)
         .put("lines", JSONArray(lines.toList()))
 
     /**
@@ -287,21 +294,30 @@ class HudOverlay(
     /**
      * 手机桥自己的界面在前台时整块摘掉（不是淡出）：那是用户在配对/看设置，
      * 不该有我们自己的浮层盖在上面。等用户切走，再从缓存的行重新显示。
+     *
+     * 「自己是前台」连续两次巡检才算数：窗口切换会有一瞬间的过渡（我们自己的浮层
+     * 窗口也会冒出窗口事件），只看一次就会把浮层刚显示出来就摘掉，看着像闪一下就没了。
      */
     private fun syncForeground() {
         val pkg = runCatching { foreground() }.getOrNull()
         val self = pkg != null && pkg == context.packageName
-        if (self == suppressed) return
-        suppressed = self
-        if (self) {
-            detach()
-            cancelFade()
+        if (!self) {
+            selfHits = 0
+            if (suppressed) {
+                suppressed = false
+                if (!faded && lines.isNotEmpty()) {
+                    render()
+                    ensureAdded()
+                    applyFade()
+                }
+            }
             return
         }
-        if (faded || lines.isEmpty()) return
-        render()
-        ensureAdded()
-        applyFade()
+        selfHits += 1
+        if (suppressed || selfHits < SELF_CONFIRM) return
+        suppressed = true
+        detach()
+        cancelFade()
     }
 
     // ------------------------------------------------------------------- 视图
