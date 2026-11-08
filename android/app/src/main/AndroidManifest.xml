@@ -22,6 +22,8 @@
     <!-- 摄像头：设置页里有开关，默认关闭，用到时再申请 -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <!-- 悬浮 HUD：默认关闭，设置页里打开时才去系统「显示在其他应用的上层」授权 -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <application
         android:allowBackup="false"

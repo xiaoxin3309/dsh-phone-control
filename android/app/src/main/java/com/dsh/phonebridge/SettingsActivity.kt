@@ -56,6 +56,9 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var notifyQuestionSwitch: MaterialSwitch
     private lateinit var notifyStatus: TextView
     private lateinit var notifyPermissionButton: Button
+    private lateinit var hudSwitch: MaterialSwitch
+    private lateinit var hudStatus: TextView
+    private lateinit var hudPermissionButton: Button
 
     private val stateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -168,6 +171,9 @@ class SettingsActivity : AppCompatActivity() {
         notifyQuestionSwitch = findViewById(R.id.notifyQuestionSwitch)
         notifyStatus = findViewById(R.id.notifyStatus)
         notifyPermissionButton = findViewById(R.id.notifyPermissionButton)
+        hudSwitch = findViewById(R.id.hudSwitch)
+        hudStatus = findViewById(R.id.hudStatus)
+        hudPermissionButton = findViewById(R.id.hudPermissionButton)
         showVersion()
 
         val prefs = prefs()
@@ -247,6 +253,17 @@ class SettingsActivity : AppCompatActivity() {
         notifyPermissionButton.setOnClickListener {
             if (Build.VERSION.SDK_INT >= 33) requestNotificationPermission() else openAppNotificationSettings()
         }
+
+        // 悬浮 HUD：默认关；打开时才去要「显示在其他应用的上层」。
+        // 授权页在系统设置里，回来时 onResume 会重新读一次真实状态。
+        hudSwitch.isChecked = prefs().getBoolean(HudOverlay.KEY_ENABLED, false)
+        refreshHudUi()
+        hudSwitch.setOnCheckedChangeListener { _, checked ->
+            prefs().edit().putBoolean(HudOverlay.KEY_ENABLED, checked).apply()
+            if (checked && !Settings.canDrawOverlays(this)) openOverlaySettings()
+            refreshHudUi()
+        }
+        hudPermissionButton.setOnClickListener { openOverlaySettings() }
 
         keepAwake.setOnCheckedChangeListener { _, checked ->
             prefs().edit().putBoolean(KEY_KEEP_AWAKE, checked).apply()
@@ -386,6 +403,32 @@ class SettingsActivity : AppCompatActivity() {
         }
     }
 
+    /** 悬浮窗权限的开关状态；系统页授权后回来刷新 */
+    private fun refreshHudUi() {
+        val permitted = Settings.canDrawOverlays(this)
+        val on = prefs().getBoolean(HudOverlay.KEY_ENABLED, false)
+        hudStatus.text = getString(
+            R.string.hud_status_fmt,
+            getString(if (permitted) R.string.hud_perm_on else R.string.hud_perm_off),
+            getString(if (on) R.string.hud_switch_on else R.string.hud_switch_off),
+        )
+        hudPermissionButton.visibility = if (permitted) View.GONE else View.VISIBLE
+    }
+
+    /** 「显示在其他应用的上层」只能由用户在系统页面授权，这里直接跳到本 App 那一页 */
+    private fun openOverlaySettings() {
+        val perApp = Intent(
+            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+            Uri.parse("package:$packageName"),
+        )
+        try {
+            startActivity(perApp)
+        } catch (e: Exception) {
+            runCatching { startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)) }
+                .onFailure { toast("没有找到「显示在其他应用的上层」设置页") }
+        }
+    }
+
     override fun onRequestPermissionsResult(
         requestCode: Int,
         permissions: Array<out String>,
@@ -444,6 +487,7 @@ class SettingsActivity : AppCompatActivity() {
         // 从系统设置页回来时权限可能已经变了
         refreshPermissionUi()
         refreshNotifyUi()
+        refreshHudUi()
     }
 
     private fun saveSettings() {

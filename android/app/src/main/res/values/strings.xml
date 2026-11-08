@@ -86,4 +86,16 @@
     <string name="notify_perm_on">已授予</string>
     <string name="notify_perm_off">未授予</string>
     <string name="notify_status_fmt">系统通知权限：%1$s；总开关：%2$s；已完成通知：%3$s；待回复通知：%4$s</string>
+
+    <!-- v0.0.35 悬浮 HUD -->
+    <string name="section_hud">悬浮 HUD</string>
+    <string name="hud_hint">默认关闭。打开后，控制手机时屏幕顶部会显示最近的点击、输入、读文件等动作；只显示动作，不显示回答正文。智能体自己的截图和控件树看不到它，你手动截图仍然看得见。</string>
+    <string name="hud_master">显示悬浮 HUD</string>
+    <string name="hud_master_hint">需要系统「显示在其他应用的上层」权限；静置 5 秒自动淡出。</string>
+    <string name="hud_perm_on">已授权</string>
+    <string name="hud_perm_off">未授权</string>
+    <string name="hud_switch_on">开</string>
+    <string name="hud_switch_off">关</string>
+    <string name="hud_status_fmt">悬浮窗权限：%1$s；开关：%2$s</string>
+    <string name="hud_grant">去开启「显示在其他应用的上层」</string>
 </resources>

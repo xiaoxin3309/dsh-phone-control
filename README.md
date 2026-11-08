@@ -102,6 +102,7 @@ npm install <repo>/plugin --prefix ~/.dsh/profiles/desktop
 - how many devices are paired, how many sessions are open, how many failed attempts happened
 - a **Disconnect** button
 - a port field (`0` = pick a free port automatically) and a bind-address selector
+- a **floating HUD** switch, off by default, which needs the system "display over other apps" permission
 
 The QR image is served by the plugin's own HTTP route (`GET /dsh-phone-control/qr`) on the DSH web port, so it
 needs no internet access and no extra client-side dependency.
@@ -191,6 +192,24 @@ Two things are worth a notification when you are not looking at the screen: a tu
 The label is the session title (falling back to the first eight characters of its id), so several sessions stay distinguishable — including titles set before the plugin loaded, which are read back from the session log once. If the phone is offline, or the user switched a category off, nothing is sent and nothing fails — the tool call returns `{sent: false, reason}` instead. The app has its own card for the system permission plus a master switch and one switch per category; ask for the state with `phone_notify { probe: true }`.
 
 You can also push by hand: `phone_notify { title, body, session }`. The `phone-notify` skill has the "when is it worth interrupting the user" heuristics.
+
+## Floating HUD
+
+The app's settings page has a **Floating HUD** switch, **off by default** — turning it on the first time opens the system "display over other apps" page. Once it is on, a translucent strip at the top of the screen narrates what the agent is doing to this phone, one line per action:
+
+```text
+▸ tap text "WeChat"
+▸ type "hello"
+▸ read the node tree
+✓ turn finished
+```
+
+It shows **actions only**, never the assistant's answer text. Up to five lines, oldest dropped first, and the whole strip fades out after five seconds idle rather than collapsing into a thin bar. It is not touchable (taps go through) and never takes focus.
+
+The plugin only pushes from sessions that recently called a `phone_*` tool, so an ordinary chat will not suddenly put something on your screen; if the phone is offline, or you switch the HUD off in the app, the plugin stays quiet.
+
+One boundary worth stating: **the agent's own screenshots and node dumps do not contain the HUD.** Before a capture the overlay is detached and one frame is awaited, then it comes back; node dumps do the same. That keeps the strip out of OCR and element lookups — the cost is "you can see it, the agent cannot". Your own manual screenshots do show it.
+
 ## How it works
 
 ```

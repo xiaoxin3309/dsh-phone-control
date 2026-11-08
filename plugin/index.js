@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { SpikeService } from './lib/service.js'
 import { createNotifier } from './lib/notify.js'
+import { createHud } from './lib/hud.js'
 import { BASE_PATH, createHandler } from './lib/routes.js'
 
 export const name = 'dsh-phone-control'
@@ -136,6 +137,7 @@ export function apply(ctx, config) {
   const service = new SpikeService({ ctx, config })
   ctx.provide('phoneBridgeSpike', service)
   const notifier = createNotifier({ service, logger: ctx.logger })
+  const hud = createHud({ service, logger: ctx.logger })
 
   // ---- settings page transport -------------------------------------------
   // Acquired through ctx.inject rather than a module-level `inject` entry: a
@@ -538,6 +540,7 @@ export function apply(ctx, config) {
       },
       present: { card: 'generic', title: '断开手机桥', kind: 'action' },
       async run(args) {
+        void hud.clear()
         const closed = service.disconnectAll()
         const forgot = args?.forget === true ? await service.forgetTokens() : false
         return { ok: true, closed, forgot, status: service.status() }
@@ -551,8 +554,17 @@ export function apply(ctx, config) {
 
   // 会话事件 → 手机通知：一轮回答结束、智能体提问等回复。
   // global: true 让所有会话都算进来，不只是当前这个。
+  // 同一个事件流也喂给悬浮 HUD（只跟最近调用过 phone_* 的会话）。
   ctx.effect(
-    () => ctx.on('session/event', (session, event) => notifier.observe(session, event), { global: true }),
+    () =>
+      ctx.on(
+        'session/event',
+        (session, event) => {
+          notifier.observe(session, event)
+          hud.observe(session, event)
+        },
+        { global: true },
+      ),
     'dsh-phone-control: session notifications',
   )
 
@@ -562,6 +574,9 @@ export function apply(ctx, config) {
     void service.start().catch((error) => {
       ctx.logger?.warn?.(`[phone-control] start failed: ${error?.message ?? String(error)}`)
     })
-    return () => service.dispose()
+    return () => {
+      hud.dispose()
+      service.dispose()
+    }
   }, 'dsh-phone-control: tcp listener')
 }

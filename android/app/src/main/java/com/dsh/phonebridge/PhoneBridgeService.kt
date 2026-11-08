@@ -42,6 +42,8 @@ class PhoneBridgeService : Service(), BridgeClient.Listener {
     private var retryRunnable: Runnable? = null
     private var fatalStop = false
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    /** 悬浮 HUD（默认关，见 HudOverlay）；截图 / 读控件树前会临时摘窗。 */
+    private var hud: HudOverlay? = null
     private var lastHost = ""
     private var lastPort = 8788
     private var lastCode = ""
@@ -56,6 +58,7 @@ class PhoneBridgeService : Service(), BridgeClient.Listener {
         super.onCreate()
         createChannel()
         registerNetworkCallback()
+        hud = HudOverlay(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -101,6 +104,9 @@ class PhoneBridgeService : Service(), BridgeClient.Listener {
         client?.stop()
         client = null
         releaseWake()
+        // 服务没了，HUD 也不能留在屏幕上。
+        hud?.destroy()
+        hud = null
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         super.onDestroy()
     }
@@ -290,28 +296,34 @@ class PhoneBridgeService : Service(), BridgeClient.Listener {
                     replyError(id, "ACCESSIBILITY_OFF", "无障碍服务未开启")
                     return
                 }
-                accessibility.captureBitmap { bitmap ->
-                    if (bitmap == null) {
-                        replyError(id, "SCREENSHOT_FAILED", "截图失败，可能遇到安全窗口或系统限频")
-                        return@captureBitmap
-                    }
-                    try {
-                        val out = ByteArrayOutputStream()
-                        bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
-                        val bytes = out.toByteArray()
-                        val result = JSONObject()
-                            .put("imageB64", Base64.encodeToString(bytes, Base64.NO_WRAP))
-                            .put("width", bitmap.width)
-                            .put("height", bitmap.height)
-                            .put("bytes", bytes.size)
-                            .put("capturedAt", System.currentTimeMillis())
-                        reply(id, result)
-                    } catch (error: Throwable) {
-                        replyError(id, "SCREENSHOT_FAILED", error.message ?: "截图编码失败")
-                    } finally {
-                        bitmap.recycle()
+                val overlay = hud
+                // HUD 要在这一帧之前摘掉，所以整个截图被包进 beforeCapture 的帧回调里。
+                val capture: () -> Unit = capture@{
+                    accessibility.captureBitmap { bitmap ->
+                        try {
+                            if (bitmap == null) {
+                                replyError(id, "SCREENSHOT_FAILED", "截图失败，可能遇到安全窗口或系统限频")
+                            } else {
+                                val out = ByteArrayOutputStream()
+                                bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+                                val bytes = out.toByteArray()
+                                val result = JSONObject()
+                                    .put("imageB64", Base64.encodeToString(bytes, Base64.NO_WRAP))
+                                    .put("width", bitmap.width)
+                                    .put("height", bitmap.height)
+                                    .put("bytes", bytes.size)
+                                    .put("capturedAt", System.currentTimeMillis())
+                                reply(id, result)
+                            }
+                        } catch (error: Throwable) {
+                            replyError(id, "SCREENSHOT_FAILED", error.message ?: "截图编码失败")
+                        } finally {
+                            bitmap?.recycle()
+                            main.post { overlay?.afterCapture() }
+                        }
                     }
                 }
+                if (overlay != null) overlay.beforeCapture(capture) else capture()
             }
 
             "tap", "long_press" -> {
@@ -403,13 +415,20 @@ class PhoneBridgeService : Service(), BridgeClient.Listener {
                     replyError(id, "ACCESSIBILITY_OFF", "无障碍服务未开启")
                     return
                 }
-                val tree = accessibility.dumpUi(
-                    maxDepth = args.optInt("maxDepth", 30).coerceIn(1, 60),
-                    maxNodes = args.optInt("maxNodes", 400).coerceIn(20, 2000),
-                    includeInvisible = args.optBoolean("includeInvisible", false),
-                )
-                tree.put("dumpedAt", System.currentTimeMillis())
-                reply(id, tree)
+                val overlay = hud
+                val dump: () -> Unit = dump@{
+                    val tree = accessibility.dumpUi(
+                        maxDepth = args.optInt("maxDepth", 30).coerceIn(1, 60),
+                        maxNodes = args.optInt("maxNodes", 400).coerceIn(20, 2000),
+                        includeInvisible = args.optBoolean("includeInvisible", false),
+                    )
+                    tree.put("dumpedAt", System.currentTimeMillis())
+                    reply(id, tree)
+                    main.post { overlay?.afterCapture() }
+                }
+                // 正常情况下 HUD 是独立窗口、本来就进不了 rootInActiveWindow 的树，
+                // 但这里仍然摘一次窗，免得个别机型的无障碍实现把 overlay 也算进去。
+                if (overlay != null) overlay.beforeCapture(dump) else dump()
             }
 
             "tap_text" -> {
@@ -473,6 +492,47 @@ class PhoneBridgeService : Service(), BridgeClient.Listener {
                         .put("question", NotifyCenter.kindEnabled(this, NotifyCenter.KIND_QUESTION))
                         .put("manual", NotifyCenter.kindEnabled(this, NotifyCenter.KIND_MANUAL)),
                 )
+            }
+
+            "hud_push" -> {
+                val overlay = hud
+                if (overlay == null) {
+                    replyError(id, "NO_SERVICE", "悬浮 HUD 未初始化")
+                    return
+                }
+                val incoming = ArrayList<String>()
+                val array = args.optJSONArray("lines")
+                if (array != null) {
+                    for (i in 0 until array.length()) {
+                        val item = array.optJSONObject(i) ?: continue
+                        val text = item.optString("text").trim()
+                        if (text.isEmpty()) continue
+                        val prefix = when (item.optString("kind")) {
+                            "done" -> "✓ "
+                            "think" -> "… "
+                            else -> "▸ "
+                        }
+                        incoming.add(prefix + text)
+                    }
+                }
+                reply(id, overlay.push(incoming, args.optLong("ttlMs", HudOverlay.IDLE_MS)))
+            }
+
+            "hud_state" -> {
+                val overlay = hud
+                reply(
+                    id,
+                    overlay?.state() ?: JSONObject()
+                        .put("enabled", false)
+                        .put("permission", false)
+                        .put("visible", false)
+                        .put("lines", JSONArray()),
+                )
+            }
+
+            "hud_clear" -> {
+                hud?.clear()
+                reply(id, JSONObject().put("ok", true))
             }
 
             "list_apps" -> {
