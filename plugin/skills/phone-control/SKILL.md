@@ -39,7 +39,7 @@ disable-model-invocation: false
 - `phone_fs_read`：读文件，默认 UTF-8 文本（`maxChars` 默认 20000 会截断），`base64: true` 返回原始字节；大文件用 `offset` + `length` 分块（默认 512 KB，上限 4 MB）。
 - `phone_fs_write`：写文件，文本用 `text`、二进制用 `dataB64`；`truncate` 默认 `true`（覆盖），传 `false` 才续写；父目录自动建。
 - `phone_fs_mkdir` / `phone_fs_rm`：建目录（父目录一起建）/ 删文件或目录（删目录必须 `recursive: true`）。
-- `phone_disconnect`：从电脑端断开当前会话。
+- `phone_disconnect`：从电脑端断开当前会话；`forget: true` 会撤销所有已签发的 token（手机丢失/换机时用，之后必须重新配对）。
 - `phone_notify`：往手机推一条通知（`title` / `body` / `session`），`probe: true` 只查手机端的通知权限与开关。要长期用通知找人，读 `phone-notify` 技能。
 
 ## 坐标建议（iQOO V2425A，截图 1260×2800）

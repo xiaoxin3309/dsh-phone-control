@@ -123,12 +123,10 @@ class PhoneBridgeService : Service(), BridgeClient.Listener {
         broadcast("connecting", "正在连接 $label")
         updateNotification("正在连接 $label")
         val deviceId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID) ?: "android"
-        val effectiveToken = if (keepLogin) {
-            token.ifEmpty { lastToken.ifEmpty { TokenStore.get(this) } }
-        } else {
-            TokenStore.clear(this)
-            ""
-        }
+        // token 一律保留并优先使用：「保持登录」只管「下次要不要自动连」，
+        // 不该决定「还要不要留着凭据」。以前这里在 keepLogin=false 时直接清库，
+        // 用户取消勾选再连一次，token 就没了，之后只能重新扫码配对。
+        val effectiveToken = token.ifEmpty { lastToken.ifEmpty { TokenStore.get(this) } }
         val bridge = BridgeClient(
             host = host,
             port = port,
@@ -167,6 +165,8 @@ class PhoneBridgeService : Service(), BridgeClient.Listener {
 
     private fun scheduleRetry(detail: String) {
         if (manualStop || retryScheduled) return
+        // 「保持登录」不再影响凭据，只影响自动重连：取消勾选 = 断开后不自己连回来。
+        if (!keepLogin) return
         val fatal = listOf("TOKEN_INVALID", "BAD_CODE", "CODE_EXPIRED", "LOCKED", "没有配对码")
             .any { detail.contains(it) }
         if (fatal) {
@@ -185,7 +185,7 @@ class PhoneBridgeService : Service(), BridgeClient.Listener {
                     retryScheduled = false
                     retryRunnable = null
                     if (manualStop) return@Runnable
-                    val token = if (keepLogin) lastToken.ifEmpty { TokenStore.get(this) } else ""
+                    val token = lastToken.ifEmpty { TokenStore.get(this) }
                     if (flip && lastCode.isEmpty() && token.isEmpty()) {
                         fatalStop = true
                         onState("error", detail)
@@ -214,7 +214,7 @@ class PhoneBridgeService : Service(), BridgeClient.Listener {
             retryScheduled = false
             retryRunnable = null
             if (manualStop) return@Runnable
-            val token = if (keepLogin) lastToken.ifEmpty { TokenStore.get(this) } else ""
+            val token = lastToken.ifEmpty { TokenStore.get(this) }
             // 重连默认用 token：码是会换的，token 不会。
             connect(lastHost, lastPort, lastCode, token, keepLogin, lastWsUrl, preferCode = lastPreferCode)
         }
@@ -256,7 +256,7 @@ class PhoneBridgeService : Service(), BridgeClient.Listener {
         retryScheduled = false
         retryAttempt = 0
         broadcast("connecting", "网络已恢复，立即重连")
-        val token = if (keepLogin) lastToken.ifEmpty { TokenStore.get(this) } else ""
+        val token = lastToken.ifEmpty { TokenStore.get(this) }
         connect(lastHost, lastPort, lastCode, token, keepLogin, lastWsUrl, preferCode = lastPreferCode && token.isEmpty())
     }
 

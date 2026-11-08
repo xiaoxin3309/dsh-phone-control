@@ -2,7 +2,7 @@ import net from 'node:net'
 import http from 'node:http'
 import { EventEmitter } from 'node:events'
 import { createRequire } from 'node:module'
-import { readFile, writeFile } from 'node:fs/promises'
+import { readFile, rm, writeFile } from 'node:fs/promises'
 import { appendFileSync } from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
@@ -23,6 +23,18 @@ import {
 } from './protocol.js'
 
 const err = (code, message) => ({ type: 'ERR', ok: false, error: { code, message } })
+
+// 保留多少条历史 token。16 条足够覆盖「换了好几台设备 / 反复扫码」的情形，
+// 又不会让 token 文件无限增长。超出后丢最旧的（排在最前的永远是最新签发的）。
+const MAX_TOKENS = 16
+
+function dedupe(hashes) {
+  const out = []
+  for (const hash of hashes) {
+    if (!out.some((item) => safeEqual(item, hash))) out.push(hash)
+  }
+  return out
+}
 
 // 认证调试日志：默认关闭，设置 DSH_PHONE_DEBUG=1 才写系统临时目录下的
 // dsh-phone-bridge-token-debug.log（不写进包目录，免得被打进 npm 包）。
@@ -171,9 +183,11 @@ export class SpikeService {
     this.codeExpiresAt = this.codeIssuedAt + 5 * 60_000
     this.failedAttempts = 0
     this.lockedUntil = 0
-    this.tokenHash = null
-    this.previousTokenHash = null
-    this.previousTokenExpiresAt = 0
+    // 已签发的 token 全部保留，永不过期（最新的在最前）。
+    // 以前只留「当前 + 上一个，24 小时宽限」，结果手机端只要没及时落盘新 token
+    // （进程被杀、装包覆盖、旧版本），过了宽限期就 TOKEN_INVALID，只能重新配对。
+    // token 本身就是这台设备的凭据，多留几条不放宽任何攻击面；要作废就整份清掉。
+    this.tokens = []
     this.pairedAt = null
     this.sessions = new Set()
     this.pending = new Map()
@@ -192,15 +206,17 @@ export class SpikeService {
     if (this.tokenFile === null) return
     try {
       const raw = JSON.parse(await readFile(this.tokenFile, 'utf8'))
-      if (typeof raw?.tokenHash === 'string' && raw.tokenHash.length > 0) {
-        this.tokenHash = Buffer.from(raw.tokenHash, 'base64')
-        this.pairedAt = Number(raw.pairedAt) || null
+      const list = Array.isArray(raw?.tokens) ? raw.tokens : []
+      const hashes = list
+        .filter((item) => typeof item === 'string' && item.length > 0)
+        .map((item) => Buffer.from(item, 'base64'))
+      // 兼容老文件：tokenHash + previousTokenHash 平铺字段，读进来就当两条。
+      for (const legacy of [raw?.tokenHash, raw?.previousTokenHash]) {
+        if (typeof legacy === 'string' && legacy.length > 0) hashes.push(Buffer.from(legacy, 'base64'))
       }
-      if (typeof raw?.previousTokenHash === 'string' && raw.previousTokenHash.length > 0) {
-        this.previousTokenHash = Buffer.from(raw.previousTokenHash, 'base64')
-        this.previousTokenExpiresAt = Number(raw.previousTokenExpiresAt) || 0
-      }
-      tokenDebug(`load ok file=${this.tokenFile} pairedAt=${this.pairedAt}`)
+      this.tokens = dedupe(hashes).slice(0, MAX_TOKENS)
+      if (this.tokens.length > 0) this.pairedAt = Number(raw?.pairedAt) || null
+      tokenDebug(`load ok file=${this.tokenFile} tokens=${this.tokens.length} pairedAt=${this.pairedAt}`)
     } catch (error) {
       tokenDebug(`load fail file=${this.tokenFile} error=${error.message}`)
       if (error?.code !== 'ENOENT') {
@@ -210,22 +226,39 @@ export class SpikeService {
   }
 
   async saveToken() {
-    if (this.tokenFile === null || this.tokenHash === null) return
+    if (this.tokenFile === null || this.tokens.length === 0) return
     try {
       await writeFile(
         this.tokenFile,
         JSON.stringify({
-          tokenHash: this.tokenHash.toString('base64'),
-          previousTokenHash: this.previousTokenHash?.toString('base64') ?? null,
-          previousTokenExpiresAt: this.previousTokenExpiresAt,
+          tokens: this.tokens.map((hash) => hash.toString('base64')),
           pairedAt: this.pairedAt,
         }),
         'utf8',
       )
-      tokenDebug(`save ok file=${this.tokenFile} pairedAt=${this.pairedAt}`)
+      tokenDebug(`save ok file=${this.tokenFile} tokens=${this.tokens.length} pairedAt=${this.pairedAt}`)
     } catch (error) {
       tokenDebug(`save fail file=${this.tokenFile} error=${error.message}`)
       this.ctx?.logger?.warn?.(`[phone-control] save token failed: ${error.message}`)
+    }
+  }
+
+  /**
+   * 撤销所有已签发的 token（手机丢失 / 换机）。
+   * token 本身不再过期，所以必须留一个「全部作废」的出口，否则旧设备永远能连回来。
+   */
+  async forgetTokens() {
+    this.tokens = []
+    this.pairedAt = null
+    if (this.tokenFile === null) return true
+    try {
+      await rm(this.tokenFile, { force: true })
+      tokenDebug(`forget ok file=${this.tokenFile}`)
+      return true
+    } catch (error) {
+      tokenDebug(`forget fail file=${this.tokenFile} error=${error.message}`)
+      this.ctx?.logger?.warn?.(`[phone-control] forget tokens failed: ${error.message}`)
+      return false
     }
   }
 
@@ -390,7 +423,7 @@ export class SpikeService {
       codeExpiresAt: this.codeExpiresAt,
       failedAttempts: this.failedAttempts,
       lockedUntil: this.lockedUntil > Date.now() ? this.lockedUntil : null,
-      paired: this.tokenHash !== null,
+      paired: this.tokens.length > 0,
       pairedAt: this.pairedAt,
       connected: ready !== undefined,
       sessions: this.sessions.size,
@@ -666,21 +699,16 @@ export class SpikeService {
     let secret
     if (typeof msg.token === 'string' && msg.token.length > 0) {
       const gotHash = sha256(fromB64u(msg.token))
-      const current = this.tokenHash !== null && safeEqual(gotHash, this.tokenHash)
-      const previous = this.previousTokenHash !== null
-        && Date.now() < this.previousTokenExpiresAt
-        && safeEqual(gotHash, this.previousTokenHash)
-      const match = current || previous
-      tokenDebug(`hello token gotLen=${gotHash.length} hasCurrent=${this.tokenHash !== null} previous=${previous} match=${match}`)
-      if (!match) {
+      const index = this.tokens.findIndex((hash) => safeEqual(hash, gotHash))
+      tokenDebug(`hello token gotLen=${gotHash.length} known=${this.tokens.length} match=${index >= 0}`)
+      if (index < 0) {
         this.sendJson(session, err('TOKEN_INVALID', '登录凭证已失效，请重新配对'), false)
         session.socket.end()
         return
       }
-      if (previous) {
-        this.tokenHash = gotHash
-        this.previousTokenHash = null
-        this.previousTokenExpiresAt = 0
+      if (index > 0) {
+        // 用过的旧 token 提到最前：它的含义是「这台设备当前在用的凭据」。
+        this.tokens = [gotHash, ...this.tokens.filter((hash) => !safeEqual(hash, gotHash))]
         void this.saveToken()
       }
       mode = 'token'
@@ -779,16 +807,11 @@ export class SpikeService {
 
     let tokenOut = null
     if (hello.mode === 'key') {
-      const oldHash = this.tokenHash
       tokenOut = randomB64u(32)
-      this.previousTokenHash = oldHash
-      // 旧 token 的宽限期从 10 分钟放宽到 24 小时。
-      // 原因：配对成功会立刻轮换 token，而手机端可能因为进程被杀 / 未落盘 /
-      // 版本旧而继续拿旧 token 重连。只给 10 分钟的话，用户睡一觉再连就是
-      // TOKEN_INVALID（"登录凭证已失效"），只能重新配对。
-      // 旧 token 本来就是这台设备自己的有效凭据，多留一天不放宽任何攻击面。
-      this.previousTokenExpiresAt = Date.now() + 24 * 3600 * 1000
-      this.tokenHash = sha256(fromB64u(tokenOut))
+      const newHash = sha256(fromB64u(tokenOut))
+      // 新 token 排最前，旧的全部留着且不设过期时间：
+      // 手机端换机、重装、进程被杀没来得及落盘时，旧凭据照样能连回来。
+      this.tokens = [newHash, ...this.tokens.filter((hash) => !safeEqual(hash, newHash))].slice(0, MAX_TOKENS)
       this.pairedAt = Date.now()
       void this.saveToken()
       this.refreshCode(true)
@@ -802,7 +825,7 @@ export class SpikeService {
       ok: true,
       token: tokenOut,
       proofS: b64u(derived.proofS),
-      expiresAt: Date.now() + 30 * 24 * 3600 * 1000,
+      expiresAt: 0, // 0 = 永不过期
       serverTime: Date.now(),
     })
   }

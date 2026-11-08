@@ -3,7 +3,7 @@
 import net from 'node:net'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { mkdirSync, rmSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, rmSync, readFileSync, writeFileSync } from 'node:fs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const PLUGIN = path.join(ROOT, 'plugin', 'lib')
@@ -203,18 +203,19 @@ const reconnected = await handshake(PORT, { token: token1, deviceId: 'test-devic
 check('断线后用同一 token 重连成功（token 模式，不下发新 token）', reconnected.ok === true && reconnected.token === null, `tokenOut=${reconnected.token}`)
 check('重连后 status.connected=true', svc.status().connected === true)
 
-// 10) 重新配对 → 旧 token 进入 previousTokenHash（10 分钟宽限）
+// 10) 重新配对 → 旧 token 保留（永不过期），新 token 排最前
 const paired2 = await handshake(PORT, { key: CODE })
 const token2 = paired2.token
 check('再次配对拿新 token', paired2.ok === true && typeof token2 === 'string' && token2 !== token1)
-check('旧 token 被记为 previous（10 分钟宽限）', svc.previousTokenHash !== null, `prevExpiresIn=${Math.round((svc.previousTokenExpiresAt - Date.now()) / 1000)}s`)
+check('新旧 token 都保留（永不过期）', svc.tokens.length === 2, `tokens=${svc.tokens.length}`)
 
-// 11) 宽限期内旧 token 仍可连，且会被提升为当前 token
+// 11) 旧 token 随时可连，且会被提到最前（= 当前在用凭据）
 reconnected.client.socket.destroy()
 await sleep(100)
 const oldTokenConn = await handshake(PORT, { token: token1, deviceId: 'test-device-C' })
-check('宽限期内旧 token 仍可连接', oldTokenConn.ok === true)
-check('旧 token 连接后提升为当前 token', svc.tokenHash !== null && svc.tokenHash.toString('base64') === proto.sha256(proto.fromB64u(token1)).toString('base64'))
+check('旧 token 仍可连接（不设过期）', oldTokenConn.ok === true)
+check('旧 token 连接后提升为当前 token', svc.tokens.length === 2
+  && svc.tokens[0].toString('base64') === proto.sha256(proto.fromB64u(token1)).toString('base64'))
 
 // 12) PC 主动断开 → 手机侧 socket 收到关闭，重连可恢复
 const closedFlag = { closed: false }
@@ -232,7 +233,9 @@ svc.dispose()
 await sleep(300)
 const tokenFile = path.join(tmpProfile, 'phone-bridge-token.json')
 const saved = JSON.parse(readFileSync(tokenFile, 'utf8'))
-check('token 文件已写入且不含明文 token', typeof saved.tokenHash === 'string' && saved.tokenHash.length > 0 && !('token' in saved), `pairedAt=${saved.pairedAt}`)
+check('token 文件已写入且不含明文 token', Array.isArray(saved.tokens) && saved.tokens.length >= 1
+  && saved.tokens.every((item) => typeof item === 'string' && item.length > 0)
+  && !('token' in saved) && !('previousTokenHash' in saved), `tokens=${saved.tokens?.length}`)
 const svc2 = makeService()
 await svc2.start()
 check('新实例加载 token 成功（paired=true）', svc2.status().paired === true)
@@ -240,6 +243,29 @@ const afterReload = await handshake(PORT, { token: token1, deviceId: 'test-devic
 check('插件重载后旧 token 仍可直接重连', afterReload.ok === true, `${afterReload.code ?? ''} ${afterReload.message ?? ''}`)
 afterReload.client?.socket.destroy()
 svc2.dispose()
+await sleep(200)
+
+// 14) 老格式 token 文件（tokenHash + previousTokenHash 平铺）自动迁移成 tokens 数组
+const legacyHash = (raw) => proto.sha256(proto.fromB64u(raw)).toString('base64')
+writeFileSync(tokenFile, JSON.stringify({
+  tokenHash: legacyHash(token1),
+  previousTokenHash: legacyHash(token2),
+  previousTokenExpiresAt: 0, // 已过期也别丢：迁移后两条都永不过期
+  pairedAt: Date.now(),
+}))
+const svc3 = makeService()
+await svc3.start()
+check('老格式 token 文件迁移为 2 条', svc3.status().paired === true && svc3.tokens.length === 2, `tokens=${svc3.tokens.length}`)
+const legacyConn = await handshake(PORT, { token: token2, deviceId: 'test-device-F' })
+check('迁移后「已过期」的旧 token 仍可连接', legacyConn.ok === true, `${legacyConn.code ?? ''} ${legacyConn.message ?? ''}`)
+legacyConn.client?.socket.destroy()
+
+// 15) 撤销所有凭证：旧 token 立刻作废，token 文件被删
+const forgot = await svc3.forgetTokens()
+const afterForget = await handshake(PORT, { token: token1, deviceId: 'test-device-G' })
+check('撤销后 token 被拒（TOKEN_INVALID）', forgot === true && !afterForget.ok && afterForget.code === 'TOKEN_INVALID', `${afterForget.code}`)
+check('撤销后 paired=false 且 token 文件已删', svc3.status().paired === false && !existsSync(tokenFile))
+svc3.dispose()
 await sleep(200)
 
 console.log(`\n结果：PASS ${pass} / FAIL ${fail}`)

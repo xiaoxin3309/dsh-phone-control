@@ -14,6 +14,9 @@ class BootReceiver : BroadcastReceiver() {
         val host = prefs.getString("bridge_host", "").orEmpty()
         val token = TokenStore.get(context)
         val wsUrl = prefs.getString("ws_url", "").orEmpty()
+        // 开机自启 = 「保持登录」的一部分：用户取消了勾选，就别自己连回来。
+        val keepLogin = prefs.getBoolean("keep_login", true)
+        if (!keepLogin) return
         if ((host.isEmpty() && wsUrl.isEmpty()) || token.isEmpty()) return
 
         val connect = Intent(context, PhoneBridgeService::class.java)
@@ -23,7 +26,7 @@ class BootReceiver : BroadcastReceiver() {
             .putExtra(PhoneBridgeService.EXTRA_CODE, prefs.getString("bridge_code", "").orEmpty())
             .putExtra(PhoneBridgeService.EXTRA_TOKEN, token)
             .putExtra(PhoneBridgeService.EXTRA_WS_URL, wsUrl)
-            .putExtra(PhoneBridgeService.EXTRA_KEEP_LOGIN, true)
+            .putExtra(PhoneBridgeService.EXTRA_KEEP_LOGIN, keepLogin)
         runCatching { ContextCompat.startForegroundService(context, connect) }
     }
 }

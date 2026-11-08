@@ -161,7 +161,7 @@ other overlay network works just as well — the app only needs a TCP route to t
 | `phone_fs_list` / `phone_fs_stat` | List a directory (default `/sdcard`) / stat a path |
 | `phone_fs_read` / `phone_fs_write` | Read a file (UTF-8 or base64, paged with `offset`/`length`) / write text or base64 |
 | `phone_fs_mkdir` / `phone_fs_rm` | Create a directory tree / delete a file or directory |
-| `phone_disconnect` | Drop the current session from the computer side |
+| `phone_disconnect` | Drop the current session; `forget: true` also revokes every issued token |
 | `phone_notify` | Push a notification to the phone (`title` / `body` / `session`); `probe: true` reports the app-side permission and switches |
 
 Typical loop:
@@ -204,8 +204,8 @@ phone  ── WebSocket ──►  computer (DSH plugin, port 8788 by default)
   both sides prove possession with HMAC over a transcript. Steady-state traffic is AES-256-GCM with the
   sequence number in the nonce.
 - Pairing issues a random 256-bit token; only its SHA-256 hash is stored (`<profile>/phone-bridge-token.json`).
-  A rotated token keeps the previous one valid for 24 hours, so a phone that slept overnight can still
-  reconnect without a fresh pairing code.
+  Every token ever issued stays valid **indefinitely** (the newest 16 are kept), so a phone that slept
+  overnight, was force-stopped, or got reinstalled can still reconnect without a fresh pairing code.
 - The pairing code expires after 5 minutes, rotates after every successful pairing, and 5 wrong attempts
   lock pairing for 5 minutes. A forced refresh lifts the lock.
 - The HTTP settings API only answers same-origin or loopback requests.

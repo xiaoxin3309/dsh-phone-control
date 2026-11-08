@@ -531,12 +531,16 @@ export function apply(ctx, config) {
     }),
     makeTool({
       name: 'phone_disconnect',
-      description: '从电脑端断开当前手机连接；手机通知会变为未连接。',
+      description: '从电脑端断开当前手机连接；手机通知会变为未连接。传 forget:true 时额外撤销所有已签发的登录凭证（手机下次必须重新扫码配对）。',
       timeoutMs: 10000,
+      properties: {
+        forget: { type: 'boolean', description: '同时撤销所有已签发的 token（手机丢失/换机时用）' },
+      },
       present: { card: 'generic', title: '断开手机桥', kind: 'action' },
-      async run() {
+      async run(args) {
         const closed = service.disconnectAll()
-        return { ok: true, closed, status: service.status() }
+        const forgot = args?.forget === true ? await service.forgetTokens() : false
+        return { ok: true, closed, forgot, status: service.status() }
       },
     }),
   ]

@@ -150,7 +150,7 @@ ingress:
 | `phone_fs_list` / `phone_fs_stat` | 列目录（默认 `/sdcard`）/ 看某个路径的类型、大小、读写权限 |
 | `phone_fs_read` / `phone_fs_write` | 读文件（UTF-8 文本或 base64，`offset`/`length` 分块）/ 写文本或 base64 |
 | `phone_fs_mkdir` / `phone_fs_rm` | 建目录（父目录一起建）/ 删文件或目录 |
-| `phone_disconnect` | 从电脑端断开当前会话 |
+| `phone_disconnect` | 从电脑端断开当前会话；`forget: true` 同时撤销所有已签发的 token |
 | `phone_notify` | 往手机推一条通知（`title` / `body` / `session`）；`probe: true` 查手机端通知权限与开关 |
 
 典型流程：
@@ -192,7 +192,7 @@ phone_ui_dump                      → 确认界面已经变了
   （配对码经 PBKDF2 拉伸，或预共享密钥）经 HKDF 派生，双方用 HMAC 互证；之后全部流量用 AES-256-GCM，
   序号写进 nonce。
 - 配对成功签发 256 位随机 token，服务端只存它的 SHA-256（`<profile>/phone-bridge-token.json`）。
-  换 token 时旧的仍保留 **24 小时**宽限，治「睡一觉再连就 TOKEN_INVALID」。
+  已签发的 token **永不过期**（保留最近 16 条），治「睡一觉 / 被杀进程 / 覆盖安装后再连就 TOKEN_INVALID」。
 - 配对码 5 分钟过期、每次配对成功后立即轮换；连续 5 次错误锁定 5 分钟，强制换码即解锁。
 - HTTP 设置接口只接受同源或回环地址的请求。
 
