@@ -899,7 +899,10 @@ export class SpikeService {
     this.sendJson(session, {
       type: 'OK',
       ok: true,
-      token: tokenOut,
+      // token 模式重连时没有新 token —— 整个字段省掉，不要发 `token: null`：
+      // 老版手机用 org.json 的 optString 读它，会把 JSON null 读成字符串 "null"，
+      // 当成新凭据存下去，把手机上那份真凭据覆盖掉（2026-11-09 的事故）。
+      ...(tokenOut === null ? {} : { token: tokenOut }),
       proofS: b64u(derived.proofS),
       expiresAt: 0, // 0 = 永不过期
       serverTime: Date.now(),

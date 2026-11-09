@@ -126,7 +126,7 @@ function handshake(port, { key, token, deviceId = 'test-device-A', deviceKey: gi
       }
       if (msg.type === 'OK') {
         const proofOk = proto.safeEqual(proto.fromB64u(msg.proofS), derived.proofS)
-        finish({ ok: true, client: c, token: msg.token ?? null, proofOk, expiresAt: msg.expiresAt, deviceKey })
+        finish({ ok: true, client: c, token: msg.token ?? null, hasTokenField: Object.prototype.hasOwnProperty.call(msg, 'token'), proofOk, expiresAt: msg.expiresAt, deviceKey })
       }
     }
     c.send({
@@ -215,6 +215,9 @@ paired.client.socket.destroy()
 await sleep(150)
 const reconnected = await handshake(PORT, { token: token1, deviceId: 'test-device-B', deviceKey: paired.deviceKey })
 check('断线后用同一 token 重连成功（token 模式，不下发新 token）', reconnected.ok === true && reconnected.token === null, `tokenOut=${reconnected.token}`)
+// 2026-11-09 事故：OK 帧里曾带 `token: null`，安卓 org.json 的 optString 把它读成字符串
+// "null"（4 个字符），存盘覆盖真凭据 → 下次重连 TOKEN_INVALID。字段必须整个不出现。
+check('token 模式 OK 帧不含 token 字段（不会被读成 "null"）', reconnected.hasTokenField === false, `hasTokenField=${reconnected.hasTokenField}`)
 check('重连后 status.connected=true', svc.status().connected === true)
 
 // 10) 重新配对 → 旧 token 保留（永不过期），新 token 排最前

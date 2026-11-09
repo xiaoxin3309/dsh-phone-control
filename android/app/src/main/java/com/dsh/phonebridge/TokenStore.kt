@@ -32,6 +32,9 @@ object TokenStore {
     private const val ALIAS = "dsh_phone_bridge_token_v1"
     private const val GCM_TAG_BITS = 128
 
+    /** 服务端签发的 token：32 字节 base64url，固定 43 个字符、无填充。 */
+    private val VALID_TOKEN = Regex("^[A-Za-z0-9_-]{43}$")
+
     fun get(context: Context): String {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val encrypted = prefs.getString(ENCRYPTED, null)
@@ -61,6 +64,10 @@ object TokenStore {
             clear(context)
             return
         }
+        // 只有服务端签发的 43 字符 base64url 才算凭据。
+        // org.json 曾把 JSON null 读成字符串 "null"（4 个字符）并送进来，
+        // 一存就把真凭据覆盖掉，手机从此连不上 —— 这类值一律拒收。
+        if (!VALID_TOKEN.matches(token)) return
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         // 先写明文兜底：加密这一步可能因为 Keystore 出问题而抛异常，
         // 那时候至少凭据还在（宁可保凭据，也不要用户重配对）。

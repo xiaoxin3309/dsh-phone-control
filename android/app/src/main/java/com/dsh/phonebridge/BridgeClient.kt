@@ -230,8 +230,12 @@ class BridgeClient(
         }
         val proofS = Proto.fromB64u(ok.getString("proofS"))
         if (!MessageDigest.isEqual(proofS, derived.proofS)) throw IllegalStateException("服务端身份校验失败")
-        val issued = ok.optString("token")
-        if (issued.isNotEmpty()) listener.onToken(issued)
+        // 只有配对（key 模式）才会下发新 token；token 模式重连时服务端这一项是 null，
+        // 而 org.json 的 optString 会把 JSON null 读成字符串 "null"（4 个字符）。
+        // 那四个字符一旦落盘，手机上唯一一份真凭据就被覆盖成垃圾，下次重连必然
+        // TOKEN_INVALID —— 2026-11-09 连不上几个小时就是这个原因。只认真 token。
+        val issued = ok.opt("token")
+        if (issued is String && TOKEN_PATTERN.matches(issued)) listener.onToken(issued)
         // 握手成功才把这份 deviceKey 交给服务落盘：失败时不留半套凭据。
         listener.onDeviceKey(key)
     }
@@ -340,5 +344,8 @@ class BridgeClient(
 
     private companion object {
         private val EOF = ByteArray(0)
+
+        /** 服务端签发的 token 固定是 32 字节的 base64url（43 个字符，无填充）。 */
+        private val TOKEN_PATTERN = Regex("^[A-Za-z0-9_-]{43}$")
     }
 }
