@@ -176,7 +176,7 @@ function ev(type, data) {
     .flatMap((c) => c.payload.lines)
     .filter((l) => l.kind === 'think')
   check('assistant/message 推 think', thinks.length === 1, JSON.stringify(thinks))
-  check('思考行不含正文', thinks[0]?.text === '还在想', JSON.stringify(thinks[0]))
+  check('思考行不含正文', thinks[0]?.text === '思考中', JSON.stringify(thinks[0]))
   hud.dispose()
 }
 
@@ -212,7 +212,7 @@ function ev(type, data) {
   hud.dispose()
 }
 
-// 13) 有流式思考时不再补「还在想」心跳
+// 13) 有流式思考时不再补「思考中」心跳
 {
   const service = fakeService()
   const hud = createHud({ service })
@@ -226,7 +226,7 @@ function ev(type, data) {
   const hearts = service.calls
     .filter((c) => c.method === 'hud_push')
     .flatMap((c) => c.payload.lines)
-    .filter((l) => l.kind === 'think' && l.text === '还在想')
+    .filter((l) => l.kind === 'think' && l.text === '思考中')
   check('流式思考期间不补心跳', hearts.length === 0, JSON.stringify(hearts))
   hud.dispose()
 }

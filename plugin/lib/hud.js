@@ -4,7 +4,7 @@
  * 只推动作，不推回答正文——HUD 是给旁边的人看的，不是把模型输出搬到手机上。
  * 只推「最近真的调用过 phone_* 的会话」，普通会话不动手机就不会突然冒出一条浮层。
  *
- * 一整轮里动作行与「还在想」心跳累积不清空（ttlMs=0），turn/end 才给 7 秒的停留时间再淡出。
+ * 一整轮里动作行与「思考中」心跳累积不清空（ttlMs=0），turn/end 才给 7 秒的停留时间再淡出。
  *
  * 传输层：service.request('hud_push', { lines: [{ kind, text }], ttlMs })，手机上按 5 行、
  * 超过就丢最旧的；手机桥自己的界面在前台时手机端会整块收起（不会盖住 App 自己）。
@@ -33,7 +33,7 @@ const DONE_TTL_MS = 7_000
 const THINK_GAP_MS = 2_500
 /** 流式思考的推送节奏：比动作慢一点，免得手机端一直在重排。 */
 const STREAM_GAP_MS = 400
-/** 有流式思考进来之后的这么久里，不再补「还在想」心跳。 */
+/** 有流式思考进来之后的这么久里，不再补「思考中」心跳。 */
 const STREAM_HOLD_MS = 5_000
 /** 只留思考的尾巴：浮层一行放不下，看的是「他现在在想哪一步」。 */
 const MAX_THINK = 80
@@ -136,7 +136,7 @@ export function createHud({ service, logger }) {
   const thinkAt = new Map()
   /** 会话 → 本轮流式思考累积的尾巴（只留最后 MAX_THINK 字）。 */
   const streamText = new Map()
-  /** 会话 → 最近一次收到流式思考的时间，用来抑制「还在想」心跳。 */
+  /** 会话 → 最近一次收到流式思考的时间，用来抑制「思考中」心跳。 */
   const streamAt = new Map()
   /** 会话 → 最近一次真的把思考行推上去的时间（节流用）。 */
   const streamPushAt = new Map()
@@ -244,7 +244,7 @@ export function createHud({ service, logger }) {
           const now = Date.now()
           if (now - (thinkAt.get(id) ?? 0) < THINK_GAP_MS) return
           thinkAt.set(id, now)
-          enqueue(KIND_THINK, '还在想')
+          enqueue(KIND_THINK, '思考中')
           return
         }
         case 'turn/end': {
