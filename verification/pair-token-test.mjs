@@ -228,6 +228,13 @@ check('每次配对都签一份新的 deviceKey', paired2.deviceKey !== paired.d
 const mismatched = await handshake(PORT, { token: token1, deviceId: 'test-device-X', deviceKey: paired2.deviceKey })
 check('用了别人的 deviceKey 会被拒（BAD_PROOF）', !mismatched.ok && mismatched.code === 'BAD_PROOF', `${mismatched.code} / ${mismatched.message}`)
 check('BAD_PROOF 文案点明「双向凭据校验失败」', /双向凭据校验失败/.test(mismatched.message ?? ''), mismatched.message)
+const authLog = svc.status().authLog ?? []
+check(
+  'phone_status 带着 authLog，能看出失败原因',
+  authLog.some((entry) => entry.result === 'BAD_PROOF')
+    && authLog.some((entry) => entry.mode === 'token' && entry.match === true),
+  JSON.stringify(authLog.slice(0, 3)),
+)
 
 // 10c) 配对时不带 deviceKey → 直接拒（老客户端不允许再建立单向凭据）
 const noKey = await new Promise((resolve) => {

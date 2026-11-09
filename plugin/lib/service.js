@@ -204,6 +204,9 @@ export class SpikeService {
     // （进程被杀、装包覆盖、旧版本），过了宽限期就 TOKEN_INVALID，只能重新配对。
     // token 本身就是这台设备的凭据，多留几条不放宽任何攻击面；要作废就整份清掉。
     this.tokens = []
+    // 最近若干次握手的结论，只在内存里留一小圈，供 phone_status 观察
+    // 「手机到底发了什么、电脑这边为什么不认」。不记 token 明文。
+    this.authLog = []
     this.pairedAt = null
     this.sessions = new Set()
     this.pending = new Map()
@@ -462,7 +465,17 @@ export class SpikeService {
       tokenFile: this.tokenFile,
       settingsFile: this.settingsFile,
       uptimeSec: Math.floor((Date.now() - this.startedAt) / 1000),
+      authLog: this.authLog,
     }
+  }
+
+  /**
+   * 记一次握手结论（最多留 20 条）。只放「判定依据」，不放 token 明文：
+   * 手机发来的 token 记长度和前 6 位哈希，电脑这边记已知凭据条数与是否命中。
+   */
+  noteAuth(entry) {
+    this.authLog.unshift({ t: Date.now(), ...entry })
+    if (this.authLog.length > 20) this.authLog.length = 20
   }
 
   readySession() {
@@ -732,6 +745,14 @@ export class SpikeService {
       const gotHash = sha256(fromB64u(msg.token))
       const index = this.tokens.findIndex((entry) => safeEqual(entry.hash, gotHash))
       tokenDebug(`hello token gotLen=${gotHash.length} known=${this.tokens.length} match=${index >= 0}`)
+      this.noteAuth({
+        mode: 'token',
+        known: this.tokens.length,
+        tokenLen: msg.token.length,
+        hash: gotHash.toString('base64').slice(0, 6),
+        match: index >= 0,
+        deviceId,
+      })
       if (index < 0) {
         this.sendJson(session, err('TOKEN_INVALID', '登录凭证已失效，请重新配对'), false)
         session.socket.end()
@@ -778,6 +799,7 @@ export class SpikeService {
       // 配对时由手机现场生成「它签给电脑的那一份」，随 HELLO 一起递过来（通道随后由它参与派生）。
       deviceKey = typeof msg.deviceKey === 'string' ? msg.deviceKey.trim() : ''
       if (!/^[A-Za-z0-9_-]{43}$/u.test(deviceKey) || fromB64u(deviceKey).length !== 32) {
+        this.noteAuth({ mode: 'key', result: 'BAD_DEVICE_KEY', deviceId, raw: typeof msg.deviceKey === 'string' ? msg.deviceKey.length : -1 })
         this.sendJson(
           session,
           err('BAD_REQUEST', '配对请求缺少 deviceKey（手机端凭据），请升级手机 App'),
@@ -847,6 +869,7 @@ export class SpikeService {
     }
     if (!safeEqual(fromB64u(msg.proofC), derived.proofC)) {
       // 两侧凭据只要有一边对不上，就会走到这里：手机换了 token、或电脑这边丢了 deviceKey。
+      this.noteAuth({ mode: hello.mode, result: 'BAD_PROOF', deviceId: hello.deviceId })
       this.sendJson(
         session,
         err('BAD_PROOF', '双向凭据校验失败：这台手机和电脑端保存的凭据对不上，请重新配对'),
@@ -856,6 +879,7 @@ export class SpikeService {
       return
     }
 
+    this.noteAuth({ mode: hello.mode, result: 'OK', deviceId: hello.deviceId, tokens: this.tokens.length })
     let tokenOut = null
     if (hello.mode === 'key') {
       tokenOut = randomB64u(32)
