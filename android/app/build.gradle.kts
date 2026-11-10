@@ -28,6 +28,10 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
+            // 发布用的 APK 沿用仓库里那份 debug.keystore 签名：这样已装旧版的手机
+            // 能直接覆盖升级（换一把新 key 的话必须先卸载、配对凭据就丢了）。
+            // 代价是它和调试包同签名 —— 对自建仓库分发够用，上架应用商店需要另换正式 key。
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 

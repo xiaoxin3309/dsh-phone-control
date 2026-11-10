@@ -23,6 +23,9 @@ window.__ModuleLoader__.load({
     /** 必须与 lib/routes.js 的 BASE_PATH 一致（两半不共享模块）。 */
     const BASE = "/dsh-phone-control";
 
+    /** 配套 App 的下载页：APK 不发 npm，只挂在 GitHub Release 上。 */
+    const RELEASES_URL = "https://github.com/xiaoxin3309/dsh-phone-control/releases";
+
     /** 设置页里的位次：放在内置分区之后。 */
     const SECTION_ID = "phone-bridge";
     const SECTION_ORDER = 70;
@@ -56,6 +59,7 @@ window.__ModuleLoader__.load({
   border: 1px solid var(--dsw-alias-border-secondary, rgba(0,0,0,.16));
   background: transparent; color: inherit; border-radius: 8px;
   padding: 6px 12px; font-size: 13px; cursor: pointer;
+  text-decoration: none; display: inline-block;
 }
 .dshpb-btn:hover { background: var(--dsw-alias-bg-hover, rgba(127,127,127,.10)); }
 .dshpb-btn:disabled { opacity: .5; cursor: default; }
@@ -299,6 +303,32 @@ window.__ModuleLoader__.load({
               },
               busy === "disconnect" ? "断开中…" : "断开手机",
             ),
+          ),
+        ),
+        // ---- 手机 App 下载（App 不发 npm，只能从 GitHub Release 拿）
+        h(
+          "div",
+          { className: "dshpb-card" },
+          h("div", { className: "dshpb-card-title" }, "手机 App"),
+          h(
+            "div",
+            { className: "dshpb-dim" },
+            "配套的 Android App 不在 npm 里，去 GitHub Releases 下载最新的 dsh-phonebridge-v*.apk 装到手机上。覆盖安装会撤销无障碍授权，装完回 App 设置页重开一次；已经装过旧版的可以直接覆盖升级，配对凭据不会丢。",
+          ),
+          h(
+            "div",
+            { className: "dshpb-row" },
+            h(
+              "a",
+              {
+                className: "dshpb-btn",
+                href: RELEASES_URL,
+                target: "_blank",
+                rel: "noopener noreferrer",
+              },
+              "打开 GitHub Releases 下载 APK",
+            ),
+            h("span", { className: "dshpb-dim" }, "github.com/xiaoxin3309/dsh-phone-control/releases"),
           ),
         ),
         // ---- 扫码配对
