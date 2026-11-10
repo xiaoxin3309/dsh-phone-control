@@ -21,7 +21,8 @@ The settings panel appears under *Settings → Phone bridge*.
 
 ## Pair in five steps
 
-1. Install the Android app from the repository's releases page.
+1. Install the Android app (`.apk`) from the releases page — <https://github.com/xiaoxin3309/dsh-phone-control/releases>.
+   The app is not published on npm, so this is the only official download.
 2. Enable its **Accessibility service**.
 3. Open *Settings → Phone bridge* in DSH and read the 8-digit code — or scan the QR code the same panel renders
    (*Scan pairing* in the app fills in code, port and host).
