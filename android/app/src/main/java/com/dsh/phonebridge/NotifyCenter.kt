@@ -85,8 +85,9 @@ object NotifyCenter {
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        val notification = NotificationCompat.Builder(context, CHANNEL)
-            .setSmallIcon(android.R.drawable.stat_notify_chat)
+        val builder = NotificationCompat.Builder(context, CHANNEL)
+            .setSmallIcon(R.drawable.ic_stat_dsh)
+            .setColor(0xFF4D6BFE.toInt())
             .setContentTitle(title.ifBlank { "DSH 会话" })
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
@@ -95,7 +96,8 @@ object NotifyCenter {
             .setOnlyAlertOnce(false)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-            .build()
+        NoticeIcons.large(context)?.let { builder.setLargeIcon(it) }
+        val notification = builder.build()
         return try {
             // 用会话做 tag：同一个会话只留最新一条，不同会话互不覆盖。
             manager.notify(sessionKey.ifBlank { "dsh-session" }, NOTICE_ID, notification)

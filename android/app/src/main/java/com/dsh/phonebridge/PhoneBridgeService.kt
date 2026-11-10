@@ -863,8 +863,9 @@ class PhoneBridgeService : Service(), BridgeClient.Listener {
             Intent(this, PhoneBridgeService::class.java).setAction(ACTION_DISCONNECT),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        return NotificationCompat.Builder(this, CHANNEL)
-            .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
+        val builder = NotificationCompat.Builder(this, CHANNEL)
+            .setSmallIcon(R.drawable.ic_stat_dsh)
+            .setColor(0xFF4D6BFE.toInt())
             .setContentTitle("DSH 手机桥")
             .setContentText(text)
             .setContentIntent(open)
@@ -872,7 +873,8 @@ class PhoneBridgeService : Service(), BridgeClient.Listener {
             .setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .addAction(0, "断开连接", disconnectIntent)
-            .build()
+        NoticeIcons.large(this)?.let { builder.setLargeIcon(it) }
+        return builder.build()
     }
 
     companion object {
