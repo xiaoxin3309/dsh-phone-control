@@ -43,7 +43,7 @@ verification/  Node.js scripts that exercise the protocol, the settings API and 
 
 1. **Install the plugin** into your DSH profile (see [Install](#install)).
 2. **Restart DSH.** The settings panel appears under *Settings → Phone bridge*.
-3. **Install the Android app** on the phone (APK from the releases page of this repository).
+3. **Install the Android app** on the phone — download the APK (see [Download the Android app](#download-the-android-app)).
 4. Open the app, enable **Accessibility service** (required for screenshots and taps).
 5. In DSH's *Phone bridge* panel, read the **8-digit pairing code** and type it into the app — or skip the
    typing and scan the QR code shown in the same panel (*Scan pairing* in the app fills in code, port and
@@ -51,6 +51,15 @@ verification/  Node.js scripts that exercise the protocol, the settings API and 
 6. Tap **Connect**. The panel turns green and the app's notification says connected.
 
 Pairing stores a 30-day token on the phone, so later launches reconnect by themselves.
+
+## Download the Android app
+
+Every release ships a signed APK: <https://github.com/xiaoxin3309/dsh-phone-control/releases>
+
+If GitHub downloads are slow, use the mirror: <https://xiaoxin3309.lanzout.com/is1Fi4frgr3i> — it serves a **zip**,
+so extract it first and install the `.apk` inside. The same link as a QR code (scan it with the phone):
+
+<img src="assets/download-qr.jpg" width="180" alt="QR code for the APK mirror">
 
 ## Install
 
@@ -278,6 +287,9 @@ gradle :app:assembleDebug      # requires JDK 21 and Android SDK 36
 ```
 
 The APK lands in `android/app/build/outputs/apk/debug/app-debug.apk`.
+
+You only need this if you want to change the app — every release already ships a signed APK
+(see [Download the Android app](#download-the-android-app)).
 
 Note: installing an update revokes the accessibility permission — Android does that for every app, so
 re-enable it after each install.

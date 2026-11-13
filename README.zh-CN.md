@@ -40,12 +40,21 @@ verification/  用 Node.js 跑协议、设置接口和打包产物的验证脚�
 
 1. 把插件装进 DSH profile（见[安装](#安装)）。
 2. 重启 DSH，*设置 → 手机桥*面板就会出现。
-3. 在手机上安装本仓库 Release 里的 APK。
+3. 在手机上安装本仓库 Release 里的 APK（见[下载 Android App](#下载-android-app)）。
 4. 打开 App，开启**无障碍服务**（截图和点击都依赖它）。
 5. 在 DSH 的「手机桥」面板里看 **8 位配对码**，填进 App，点**连接**；或者省掉手打——用 App 设置页的
    **扫码配对**扫面板上那张二维码，码、端口、地址会自动填好。面板变绿、通知显示「已连接」即可。
 
 配对成功会在手机上保存一个 30 天的 token，以后打开 App 会自动重连。
+
+## 下载 Android App
+
+每个 Release 都附了签名好的 APK：<https://github.com/xiaoxin3309/dsh-phone-control/releases>
+
+GitHub 下载慢的话用备用地址：<https://xiaoxin3309.lanzout.com/is1Fi4frgr3i> —— 蓝奏云给的是 **zip 压缩包**，
+下载后要先解压，再装里面的 `.apk`。同一个地址的二维码（用手机扫）：
+
+<img src="assets/download-qr.jpg" width="180" alt="APK 备用下载地址二维码">
 
 ## 安装
 
@@ -259,6 +268,8 @@ gradle :app:assembleDebug      # 需要 JDK 21 与 Android SDK 36
 ```
 
 产物在 `android/app/build/outputs/apk/debug/app-debug.apk`。
+
+只有要改 App 时才需要自己编 —— 每个 Release 都附了签名好的 APK（见[下载 Android App](#下载-android-app)）。
 
 注意：安装新版本会让系统撤销无障碍授权（所有 App 都这样），装完要重新开启一次。
 
