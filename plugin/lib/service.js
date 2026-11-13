@@ -189,6 +189,12 @@ export class SpikeService {
     this.requestedPort = Number.isInteger(requested) && requested >= 0 && requested <= 65535 ? requested : 0
     this.autoPort = this.requestedPort === 0
     this.port = this.requestedPort
+    // 固定端口被临时占用时先绑一个随机端口顶上，但**绝不把它写回设置**：
+    // 写回去会让指向原端口的隧道永久失联（2026-11-11、11-13 各踩一次，
+    // 都是 DSH 重启瞬间上一个进程还占着 8788，被改成了 8898 / 9316）。
+    // 记下原端口，等它空出来自动搬回去。
+    this.fallbackPort = 0
+    this.reclaimTimer = null
     this.bindHost = String(config?.bindHost ?? '0.0.0.0')
     const configuredCode = String(config?.pairingCode ?? '').trim()
     const autoCode = config?.autoCode !== false
@@ -450,6 +456,7 @@ export class SpikeService {
       port: this.port,
       requestedPort: this.requestedPort,
       autoPort: this.autoPort,
+      portFallbackFrom: this.fallbackPort,
       bindHost: this.bindHost,
       pairingCode: this.code,
       codeIssuedAt: this.codeIssuedAt,
@@ -523,6 +530,7 @@ export class SpikeService {
       this.ctx?.logger?.warn?.(`[phone-control] listen error: ${error.message}`)
     })
     this.port = await this.pickPort()
+    const wanted = this.requestedPort
     let lastError = null
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
@@ -545,10 +553,55 @@ export class SpikeService {
     if (lastError !== null) throw lastError
     const address = server.address()
     if (typeof address === 'object' && address !== null) this.port = address.port
-    this.requestedPort = this.port
-    this.autoPort = false
-    await this.saveSettings()
+    if (wanted > 0 && this.port !== wanted) {
+      // 只是原端口临时被占：保留 requestedPort（设置文件也不动），等它空出来再搬回去。
+      this.fallbackPort = wanted
+      this.ctx?.logger?.warn?.(
+        `[phone-control] listening on ${this.bindHost}:${this.port} — temporary, `
+        + `${wanted} was busy; it will move back as soon as ${wanted} is free`,
+      )
+      this.schedulePortReclaim()
+    } else {
+      this.fallbackPort = 0
+      this.clearPortReclaim()
+      this.requestedPort = this.port
+      this.autoPort = false
+      await this.saveSettings()
+    }
     this.ctx?.logger?.info?.(`[phone-control] listening on ${this.bindHost}:${this.port}`)
+  }
+
+  /** Poll until the requested port is free again, then move back to it. */
+  schedulePortReclaim() {
+    if (this.reclaimTimer !== null) return
+    this.reclaimTimer = setInterval(() => {
+      void this.reclaimPort()
+    }, 15_000)
+    this.reclaimTimer.unref?.()
+  }
+
+  clearPortReclaim() {
+    if (this.reclaimTimer === null) return
+    clearInterval(this.reclaimTimer)
+    this.reclaimTimer = null
+  }
+
+  async reclaimPort() {
+    const wanted = this.fallbackPort
+    if (wanted <= 0 || this.server === null) return
+    if (!(await portFree(wanted, this.bindHost))) return
+    this.fallbackPort = 0
+    this.clearPortReclaim()
+    this.requestedPort = wanted
+    this.autoPort = false
+    this.ctx?.logger?.info?.(`[phone-control] port ${wanted} is free again, moving back`)
+    try {
+      await this.restart()
+    } catch (error) {
+      this.ctx?.logger?.warn?.(`[phone-control] move back to ${wanted} failed: ${error.message}`)
+      this.fallbackPort = wanted
+      this.schedulePortReclaim()
+    }
   }
 
   route(socket) {
@@ -928,6 +981,7 @@ export class SpikeService {
   }
 
   dispose() {
+    this.clearPortReclaim()
     this.stopListener()
   }
 }
